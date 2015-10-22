@@ -90,7 +90,6 @@ func main() {
 						if closestT != nil {
 							closestT.Dx += (e.X - touchStart.X) / float32(sz.WidthPx)
 							closestT.Dy += (e.Y - touchStart.Y) / float32(sz.HeightPx)
-							log.Printf("ASIM:", *closestT)
 						}
 					}
 				}
