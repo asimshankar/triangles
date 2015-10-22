@@ -14,12 +14,9 @@ import (
 
 // Triangle represents a triangle that will be displayed on the screen.
 //
-// (X, Y) encodes the position of the lower-left vertex of the triangle as
-// numbers in the range [0, 1]. Where (0, 0) is the bottom left end of the
-// screen and (1, 1) is the top right.
-//
-// (Dx, Dy) encode the velocity of movement of the triangle in the same
-// coordinate system.
+// The coordinates (X, Y) and velocity (Dx, Dy) are in a world where
+// (0, 0) is the center, (1, 1) is the top right and (-1, -1) is the bottom
+// left.
 //
 // R, G, B denote the color of the triangle.
 type Triangle struct {

@@ -21,7 +21,7 @@ func main() {
 		var (
 			myGL        *GL
 			myTriangles = []*spec.Triangle{
-				&spec.Triangle{X: 0.5, Y: 0.5, B: 1.0},
+				&spec.Triangle{B: 1},
 			}
 			sz size.Event
 
@@ -76,9 +76,8 @@ func main() {
 						touchCount = 0
 						// Find the closest triangle to the touch start and adjust its velocity.
 						var (
-							// Normalize the touch coordinates to the triangle coordinates ([0,1])
-							x             = touchStart.X / float32(sz.WidthPx)
-							y             = touchStart.Y / float32(sz.HeightPx)
+							// Normalize the touch coordinates to the triangle coordinates ([-1,1])
+							x, y          = touch2coords(touchStart, sz)
 							closestT      *spec.Triangle
 							minDistanceSq float32
 						)
@@ -102,15 +101,21 @@ func main() {
 
 func exitOnLifecycleCrossOff() bool { return runtime.GOOS != "android" }
 
+// touch2coords transforms coordinates from the touch.Event coordinate system
+// to the GL and Triangles coordinate system.
+func touch2coords(t touch.Event, sz size.Event) (x, y float32) {
+	return 2*t.X/float32(sz.WidthPx) - 1, 2*t.Y/float32(sz.HeightPx) - 1
+}
+
 func moveTriangle(t *spec.Triangle) {
 	t.X = t.X + t.Dx*timeBetweenPaints
-	t.Y = t.Y + (t.Dy+gravity)*timeBetweenPaints
-	if t.Y <= 0 {
+	t.Y = t.Y + (t.Dy-gravity)*timeBetweenPaints
+	if t.Y <= -1 {
 		t.Dy = -1 * t.Dy
-		t.Y = 0
-	} else if t.Y >= 1 {
+		t.Y = -1
+	} else if t.Y >= 1-triangleHeight {
 		t.Dy = -1 * t.Dy
-		t.Y = 1
+		t.Y = 1 - triangleHeight
 	}
 }
 
