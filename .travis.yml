@@ -13,5 +13,3 @@ script:
   - go build .
   - go test ./...
   - gomobile build -target=android .
-  - gomobile build -target=ios .
-
