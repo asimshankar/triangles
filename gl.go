@@ -89,13 +89,13 @@ void main() {
 
 	coordsPerVertex = 3
 	vertexCount     = 3
-	triangleSize    = 0.4 // In OpenGL coordinates where the full screen in of size 2 [-1, 1]
+	triangleHeight  = 0.4 // In OpenGL coordinates where the full screen in of size 2 [-1, 1]
 )
 
 var (
 	triangleData = f32.Bytes(binary.LittleEndian,
-		0.0, triangleSize, 0.0, // top left
+		0.0, triangleHeight, 0.0, // top left
 		0.0, 0.0, 0.0, // bottom left
-		triangleSize, 0.0, 0.0, // bottom right
+		triangleHeight, 0.0, 0.0, // bottom right
 	)
 )
