@@ -1,0 +1,17 @@
+language: go
+
+go:
+  - 1.5
+
+before_install:
+  - sudo apt-get update -qq
+  - sudo apt-get install -qq libgles2-mesa-dev
+  - go get golang.org/x/mobile/cmd/gomobile
+  - gomobile init
+
+script:
+  - go build .
+  - go test ./...
+  - gomobile build -target=android .
+  - gomobile build -target=ios .
+

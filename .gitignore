@@ -3,6 +3,10 @@
 *.a
 *.so
 
+# gomobile generated stuff
+triangles.apk
+triangles.app
+
 # Folders
 _obj
 _test
