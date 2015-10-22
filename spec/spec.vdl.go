@@ -9,6 +9,10 @@ package spec
 
 import (
 	// VDL system imports
+	"io"
+	"v.io/v23"
+	"v.io/v23/context"
+	"v.io/v23/rpc"
 	"v.io/v23/vdl"
 )
 
@@ -36,4 +40,330 @@ func (Triangle) __VDLReflect(struct {
 
 func init() {
 	vdl.Register((*Triangle)(nil))
+}
+
+// ScreenClientMethods is the client interface
+// containing Screen methods.
+//
+// Screen represents a remote screen that can be invited to grab triangles.
+type ScreenClientMethods interface {
+	// Invite is a request to the receiver to join the set of
+	// screens that the caller is participating in, by standing
+	// to the right of the caller.
+	//
+	// A Screen can be active on at most one invitation at a time
+	// and should return an error if it is engaged in a previous
+	// invitation.
+	//
+	// The caller streams triangles that have fallen of the right
+	// side of its screen and should appear on the left side of
+	// the receiver, and the receiver streams the opposite back.
+	Invite(*context.T, ...rpc.CallOpt) (ScreenInviteClientCall, error)
+}
+
+// ScreenClientStub adds universal methods to ScreenClientMethods.
+type ScreenClientStub interface {
+	ScreenClientMethods
+	rpc.UniversalServiceMethods
+}
+
+// ScreenClient returns a client stub for Screen.
+func ScreenClient(name string) ScreenClientStub {
+	return implScreenClientStub{name}
+}
+
+type implScreenClientStub struct {
+	name string
+}
+
+func (c implScreenClientStub) Invite(ctx *context.T, opts ...rpc.CallOpt) (ocall ScreenInviteClientCall, err error) {
+	var call rpc.ClientCall
+	if call, err = v23.GetClient(ctx).StartCall(ctx, c.name, "Invite", nil, opts...); err != nil {
+		return
+	}
+	ocall = &implScreenInviteClientCall{ClientCall: call}
+	return
+}
+
+// ScreenInviteClientStream is the client stream for Screen.Invite.
+type ScreenInviteClientStream interface {
+	// RecvStream returns the receiver side of the Screen.Invite client stream.
+	RecvStream() interface {
+		// Advance stages an item so that it may be retrieved via Value.  Returns
+		// true iff there is an item to retrieve.  Advance must be called before
+		// Value is called.  May block if an item is not available.
+		Advance() bool
+		// Value returns the item that was staged by Advance.  May panic if Advance
+		// returned false or was not called.  Never blocks.
+		Value() Triangle
+		// Err returns any error encountered by Advance.  Never blocks.
+		Err() error
+	}
+	// SendStream returns the send side of the Screen.Invite client stream.
+	SendStream() interface {
+		// Send places the item onto the output stream.  Returns errors
+		// encountered while sending, or if Send is called after Close or
+		// the stream has been canceled.  Blocks if there is no buffer
+		// space; will unblock when buffer space is available or after
+		// the stream has been canceled.
+		Send(item Triangle) error
+		// Close indicates to the server that no more items will be sent;
+		// server Recv calls will receive io.EOF after all sent items.
+		// This is an optional call - e.g. a client might call Close if it
+		// needs to continue receiving items from the server after it's
+		// done sending.  Returns errors encountered while closing, or if
+		// Close is called after the stream has been canceled.  Like Send,
+		// blocks if there is no buffer space available.
+		Close() error
+	}
+}
+
+// ScreenInviteClientCall represents the call returned from Screen.Invite.
+type ScreenInviteClientCall interface {
+	ScreenInviteClientStream
+	// Finish performs the equivalent of SendStream().Close, then blocks until
+	// the server is done, and returns the positional return values for the call.
+	//
+	// Finish returns immediately if the call has been canceled; depending on the
+	// timing the output could either be an error signaling cancelation, or the
+	// valid positional return values from the server.
+	//
+	// Calling Finish is mandatory for releasing stream resources, unless the call
+	// has been canceled or any of the other methods return an error.  Finish should
+	// be called at most once.
+	Finish() error
+}
+
+type implScreenInviteClientCall struct {
+	rpc.ClientCall
+	valRecv Triangle
+	errRecv error
+}
+
+func (c *implScreenInviteClientCall) RecvStream() interface {
+	Advance() bool
+	Value() Triangle
+	Err() error
+} {
+	return implScreenInviteClientCallRecv{c}
+}
+
+type implScreenInviteClientCallRecv struct {
+	c *implScreenInviteClientCall
+}
+
+func (c implScreenInviteClientCallRecv) Advance() bool {
+	c.c.valRecv = Triangle{}
+	c.c.errRecv = c.c.Recv(&c.c.valRecv)
+	return c.c.errRecv == nil
+}
+func (c implScreenInviteClientCallRecv) Value() Triangle {
+	return c.c.valRecv
+}
+func (c implScreenInviteClientCallRecv) Err() error {
+	if c.c.errRecv == io.EOF {
+		return nil
+	}
+	return c.c.errRecv
+}
+func (c *implScreenInviteClientCall) SendStream() interface {
+	Send(item Triangle) error
+	Close() error
+} {
+	return implScreenInviteClientCallSend{c}
+}
+
+type implScreenInviteClientCallSend struct {
+	c *implScreenInviteClientCall
+}
+
+func (c implScreenInviteClientCallSend) Send(item Triangle) error {
+	return c.c.Send(item)
+}
+func (c implScreenInviteClientCallSend) Close() error {
+	return c.c.CloseSend()
+}
+func (c *implScreenInviteClientCall) Finish() (err error) {
+	err = c.ClientCall.Finish()
+	return
+}
+
+// ScreenServerMethods is the interface a server writer
+// implements for Screen.
+//
+// Screen represents a remote screen that can be invited to grab triangles.
+type ScreenServerMethods interface {
+	// Invite is a request to the receiver to join the set of
+	// screens that the caller is participating in, by standing
+	// to the right of the caller.
+	//
+	// A Screen can be active on at most one invitation at a time
+	// and should return an error if it is engaged in a previous
+	// invitation.
+	//
+	// The caller streams triangles that have fallen of the right
+	// side of its screen and should appear on the left side of
+	// the receiver, and the receiver streams the opposite back.
+	Invite(*context.T, ScreenInviteServerCall) error
+}
+
+// ScreenServerStubMethods is the server interface containing
+// Screen methods, as expected by rpc.Server.
+// The only difference between this interface and ScreenServerMethods
+// is the streaming methods.
+type ScreenServerStubMethods interface {
+	// Invite is a request to the receiver to join the set of
+	// screens that the caller is participating in, by standing
+	// to the right of the caller.
+	//
+	// A Screen can be active on at most one invitation at a time
+	// and should return an error if it is engaged in a previous
+	// invitation.
+	//
+	// The caller streams triangles that have fallen of the right
+	// side of its screen and should appear on the left side of
+	// the receiver, and the receiver streams the opposite back.
+	Invite(*context.T, *ScreenInviteServerCallStub) error
+}
+
+// ScreenServerStub adds universal methods to ScreenServerStubMethods.
+type ScreenServerStub interface {
+	ScreenServerStubMethods
+	// Describe the Screen interfaces.
+	Describe__() []rpc.InterfaceDesc
+}
+
+// ScreenServer returns a server stub for Screen.
+// It converts an implementation of ScreenServerMethods into
+// an object that may be used by rpc.Server.
+func ScreenServer(impl ScreenServerMethods) ScreenServerStub {
+	stub := implScreenServerStub{
+		impl: impl,
+	}
+	// Initialize GlobState; always check the stub itself first, to handle the
+	// case where the user has the Glob method defined in their VDL source.
+	if gs := rpc.NewGlobState(stub); gs != nil {
+		stub.gs = gs
+	} else if gs := rpc.NewGlobState(impl); gs != nil {
+		stub.gs = gs
+	}
+	return stub
+}
+
+type implScreenServerStub struct {
+	impl ScreenServerMethods
+	gs   *rpc.GlobState
+}
+
+func (s implScreenServerStub) Invite(ctx *context.T, call *ScreenInviteServerCallStub) error {
+	return s.impl.Invite(ctx, call)
+}
+
+func (s implScreenServerStub) Globber() *rpc.GlobState {
+	return s.gs
+}
+
+func (s implScreenServerStub) Describe__() []rpc.InterfaceDesc {
+	return []rpc.InterfaceDesc{ScreenDesc}
+}
+
+// ScreenDesc describes the Screen interface.
+var ScreenDesc rpc.InterfaceDesc = descScreen
+
+// descScreen hides the desc to keep godoc clean.
+var descScreen = rpc.InterfaceDesc{
+	Name:    "Screen",
+	PkgPath: "github.com/asimshankar/triangles/spec",
+	Doc:     "// Screen represents a remote screen that can be invited to grab triangles.",
+	Methods: []rpc.MethodDesc{
+		{
+			Name: "Invite",
+			Doc:  "// Invite is a request to the receiver to join the set of\n// screens that the caller is participating in, by standing\n// to the right of the caller.\n//\n// A Screen can be active on at most one invitation at a time\n// and should return an error if it is engaged in a previous\n// invitation.\n//\n// The caller streams triangles that have fallen of the right\n// side of its screen and should appear on the left side of\n// the receiver, and the receiver streams the opposite back.",
+		},
+	},
+}
+
+// ScreenInviteServerStream is the server stream for Screen.Invite.
+type ScreenInviteServerStream interface {
+	// RecvStream returns the receiver side of the Screen.Invite server stream.
+	RecvStream() interface {
+		// Advance stages an item so that it may be retrieved via Value.  Returns
+		// true iff there is an item to retrieve.  Advance must be called before
+		// Value is called.  May block if an item is not available.
+		Advance() bool
+		// Value returns the item that was staged by Advance.  May panic if Advance
+		// returned false or was not called.  Never blocks.
+		Value() Triangle
+		// Err returns any error encountered by Advance.  Never blocks.
+		Err() error
+	}
+	// SendStream returns the send side of the Screen.Invite server stream.
+	SendStream() interface {
+		// Send places the item onto the output stream.  Returns errors encountered
+		// while sending.  Blocks if there is no buffer space; will unblock when
+		// buffer space is available.
+		Send(item Triangle) error
+	}
+}
+
+// ScreenInviteServerCall represents the context passed to Screen.Invite.
+type ScreenInviteServerCall interface {
+	rpc.ServerCall
+	ScreenInviteServerStream
+}
+
+// ScreenInviteServerCallStub is a wrapper that converts rpc.StreamServerCall into
+// a typesafe stub that implements ScreenInviteServerCall.
+type ScreenInviteServerCallStub struct {
+	rpc.StreamServerCall
+	valRecv Triangle
+	errRecv error
+}
+
+// Init initializes ScreenInviteServerCallStub from rpc.StreamServerCall.
+func (s *ScreenInviteServerCallStub) Init(call rpc.StreamServerCall) {
+	s.StreamServerCall = call
+}
+
+// RecvStream returns the receiver side of the Screen.Invite server stream.
+func (s *ScreenInviteServerCallStub) RecvStream() interface {
+	Advance() bool
+	Value() Triangle
+	Err() error
+} {
+	return implScreenInviteServerCallRecv{s}
+}
+
+type implScreenInviteServerCallRecv struct {
+	s *ScreenInviteServerCallStub
+}
+
+func (s implScreenInviteServerCallRecv) Advance() bool {
+	s.s.valRecv = Triangle{}
+	s.s.errRecv = s.s.Recv(&s.s.valRecv)
+	return s.s.errRecv == nil
+}
+func (s implScreenInviteServerCallRecv) Value() Triangle {
+	return s.s.valRecv
+}
+func (s implScreenInviteServerCallRecv) Err() error {
+	if s.s.errRecv == io.EOF {
+		return nil
+	}
+	return s.s.errRecv
+}
+
+// SendStream returns the send side of the Screen.Invite server stream.
+func (s *ScreenInviteServerCallStub) SendStream() interface {
+	Send(item Triangle) error
+} {
+	return implScreenInviteServerCallSend{s}
+}
+
+type implScreenInviteServerCallSend struct {
+	s *ScreenInviteServerCallStub
+}
+
+func (s implScreenInviteServerCallSend) Send(item Triangle) error {
+	return s.s.Send(item)
 }

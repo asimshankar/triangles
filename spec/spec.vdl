@@ -16,3 +16,19 @@ type Triangle struct {
 	Dx, Dy  float32
 	R, G, B float32
 }
+
+// Screen represents a remote screen that can be invited to grab triangles.
+type Screen interface {
+	// Invite is a request to the receiver to join the set of
+	// screens that the caller is participating in, by standing
+	// to the right of the caller.
+	//
+	// A Screen can be active on at most one invitation at a time
+	// and should return an error if it is engaged in a previous
+	// invitation.
+	//
+	// The caller streams triangles that have fallen of the right
+	// side of its screen and should appear on the left side of
+	// the receiver, and the receiver streams the opposite back.
+	Invite() stream<Triangle, Triangle> error
+}

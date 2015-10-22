@@ -27,9 +27,27 @@ func main() {
 
 			touchCount int // Number of touch events before the touch stopped
 			touchStart touch.Event
+
+			chMyScreen      = make(chan *spec.Triangle) // New triangles to draw on my screen
+			leftScreen      = newOtherScreen(nil, chMyScreen)
+			rightScreen     = newOtherScreen(nil, chMyScreen)
+			networkChannels = SetupNetwork(chMyScreen)
 		)
 		for {
 			select {
+			case err := <-networkChannels.Ready:
+				if err != nil {
+					log.Panic(err)
+				}
+				networkChannels.Ready = nil // To stop this select clause from being hit.
+			case ch := <-networkChannels.NewLeftScreen:
+				leftScreen.close()
+				leftScreen = newOtherScreen(ch, chMyScreen)
+			case ch := <-networkChannels.NewRightScreen:
+				rightScreen.close()
+				rightScreen = newOtherScreen(ch, chMyScreen)
+			case t := <-chMyScreen:
+				myTriangles = append(myTriangles, t)
 			case e := <-a.Events():
 				switch e := a.Filter(e).(type) {
 				case lifecycle.Event:
@@ -52,9 +70,25 @@ func main() {
 					if e.External {
 						continue
 					}
+					var mine, left, right []*spec.Triangle
 					for _, t := range myTriangles {
 						moveTriangle(t)
+						switch {
+						case t.X <= -1:
+							left = append(left, t)
+						case t.X >= 1:
+							right = append(right, t)
+						default:
+							mine = append(mine, t)
+						}
 					}
+					if len(left) > 0 {
+						go leftScreen.send(left)
+					}
+					if len(right) > 0 {
+						go rightScreen.send(right)
+					}
+					myTriangles = mine
 					myGL.Paint(myTriangles)
 					a.Publish()
 					a.Send(paint.Event{})
@@ -98,6 +132,44 @@ func main() {
 	})
 }
 
+type otherScreen struct {
+	chTriangles chan<- *spec.Triangle
+	chLost      chan struct{}
+	chSelf      chan<- *spec.Triangle
+}
+
+func newOtherScreen(other, self chan<- *spec.Triangle) *otherScreen {
+	return &otherScreen{
+		chTriangles: other,
+		chLost:      make(chan struct{}),
+		chSelf:      self,
+	}
+}
+
+func (s *otherScreen) close() {
+	close(s.chLost)
+}
+
+func (s *otherScreen) send(triangles []*spec.Triangle) {
+	if s.chTriangles == nil {
+		for _, t := range triangles {
+			returnTriangle(t, s.chSelf)
+		}
+	}
+	for i, t := range triangles {
+		select {
+		case <-s.chLost:
+			// Lost the other screen, so reflect the remaining triangles back onto my screen.
+			for i < len(triangles) {
+				returnTriangle(t, s.chSelf)
+				i++
+			}
+			return
+		case s.chTriangles <- t:
+		}
+	}
+}
+
 func exitOnLifecycleCrossOff() bool { return runtime.GOOS != "android" }
 
 // touch2coords transforms coordinates from the touch.Event coordinate system
@@ -116,6 +188,12 @@ func moveTriangle(t *spec.Triangle) {
 		t.Dy = -1 * t.Dy
 		t.Y = 1 - triangleHeight
 	}
+}
+
+func returnTriangle(t *spec.Triangle, myScreen chan<- *spec.Triangle) {
+	t.Dx = -1 * t.Dx
+	moveTriangle(t)
+	myScreen <- t
 }
 
 const (
