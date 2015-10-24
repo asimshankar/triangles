@@ -22,9 +22,7 @@ func main() {
 			myGL        *GL
 			myTriangles []*spec.Triangle
 			sz          size.Event
-
-			touchCount int // Number of touch events before the touch stopped
-			touchStart touch.Event
+			touches     = make(map[touch.Sequence]*touchEvents) // Active touch events
 
 			chMyScreen      = make(chan *spec.Triangle) // New triangles to draw on my screen
 			leftScreen      = newOtherScreen(nil, chMyScreen)
@@ -101,21 +99,20 @@ func main() {
 				case touch.Event:
 					switch e.Type {
 					case touch.TypeBegin:
-						touchCount = 1
-						touchStart = e
+						touches[e.Sequence] = &touchEvents{Start: e}
 					case touch.TypeMove:
-						touchCount++
+						touches[e.Sequence].Count++
 					case touch.TypeEnd:
-						if touchCount > maxTouchCount {
-							log.Printf("Ignoring long touch (%d > %d)", touchCount, maxTouchCount)
-							touchCount = 0
+						tch := touches[e.Sequence]
+						delete(touches, e.Sequence)
+						if c := tch.Count; c > maxTouchCount {
+							log.Printf("Ignoring long touch (%d > %d)", c, maxTouchCount)
 							break
 						}
-						touchCount = 0
 						// Find the closest triangle to the touch start and adjust its velocity.
 						var (
 							// Normalize the touch coordinates to the triangle coordinates ([-1,1])
-							x, y          = touch2coords(touchStart, sz)
+							x, y          = touch2coords(tch.Start, sz)
 							closestT      *spec.Triangle
 							minDistanceSq float32
 						)
@@ -126,14 +123,19 @@ func main() {
 							}
 						}
 						if closestT != nil {
-							closestT.Dx += (e.X - touchStart.X) / float32(sz.WidthPx)
-							closestT.Dy += (e.Y - touchStart.Y) / float32(sz.HeightPx)
+							closestT.Dx += (e.X - tch.Start.X) / float32(sz.WidthPx)
+							closestT.Dy += (e.Y - tch.Start.Y) / float32(sz.HeightPx)
 						}
 					}
 				}
 			}
 		}
 	})
+}
+
+type touchEvents struct {
+	Start touch.Event // Starting event
+	Count int         // Number of moves before the end event
 }
 
 type otherScreen struct {
