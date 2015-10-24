@@ -13,7 +13,6 @@ import (
 	"golang.org/x/mobile/event/touch"
 	"golang.org/x/mobile/gl"
 	"log"
-	"runtime"
 )
 
 func main() {
@@ -169,8 +168,6 @@ func (s *otherScreen) send(triangles []*spec.Triangle) {
 		}
 	}
 }
-
-func exitOnLifecycleCrossOff() bool { return runtime.GOOS != "android" }
 
 // touch2coords transforms coordinates from the touch.Event coordinate system
 // to the GL and Triangles coordinate system.

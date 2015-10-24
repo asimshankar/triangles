@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"github.com/asimshankar/triangles/spec"
-	"log"
 	"sync"
 	"v.io/v23"
 	"v.io/v23/context"
@@ -45,6 +44,7 @@ func SetupNetwork(chMyScreen chan<- *spec.Triangle) NetworkChannels {
 		}
 	)
 	go func() {
+		preV23Init()
 		ctx, shutdown := v23.Init()
 		defer shutdown()
 		ctx, server, err := v23.WithNewServer(ctx, "", spec.ScreenServer(nm), security.AllowEveryone())
@@ -54,7 +54,7 @@ func SetupNetwork(chMyScreen chan<- *spec.Triangle) NetworkChannels {
 		}
 		go nm.sendInvites(ctx)
 		for idx, ep := range server.Status().Endpoints {
-			log.Printf("Server address #%d: %v", idx+1, ep.Name())
+			ctx.Infof("Server address #%d: %v", idx+1, ep.Name())
 		}
 		close(ready)
 		<-ctx.Done()
@@ -80,7 +80,7 @@ func (nm *networkManager) Invite(ctx *context.T, call spec.ScreenInviteServerCal
 	}
 	defer nm.exitInvitation()
 	blessings, rejected := security.RemoteBlessingNames(ctx, call.Security())
-	log.Printf("Accepted invitation from %v (rejected blessings: %v)", blessings, rejected)
+	ctx.Infof("Accepted invitation from %v (rejected blessings: %v)", blessings, rejected)
 	chError := make(chan error, 2) // Buffered so that we don't have to worry about the two goroutines blocking
 	go stream2channel(call.RecvStream(), nm.myScreen, -2, chError)
 	go channel2stream(chLeftScreen, call.SendStream(), nm.myScreen, chError)
@@ -129,9 +129,9 @@ func (nm *networkManager) sendInvites(ctx *context.T) {
 			return
 		case err := <-chError:
 			if err != nil {
-				log.Printf("Lost the right screen: %v", err)
+				ctx.Infof("Lost the right screen: %v", err)
 			}
-			log.Printf("Done with the right screen: %v", call.Finish())
+			ctx.Infof("Done with the right screen: %v", call.Finish())
 		}
 	}
 }
