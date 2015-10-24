@@ -1,6 +1,6 @@
 # triangles
 * [![Build Status](https://travis-ci.org/asimshankar/triangles.svg)](https://travis-ci.org/asimshankar/triangles)
-* Go+V23+Mobile
+* [Go](https://golang.org)+[v23](https://github.com/vanadium/go.v23)+[Mobile](https://github.com/golang/mobile)
 * Heavily inspired by [volley](https://github.com/monopole/volley), though this
   utilizes the [v23](https://github.com/vanadium/go.v23) network discovery APIs
   to simplify the setup
