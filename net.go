@@ -1,19 +1,24 @@
 package main
 
 import (
-	"flag"
+	"bytes"
+	"crypto/rand"
 	"fmt"
 	"github.com/asimshankar/triangles/spec"
+	"runtime"
 	"sync"
+	"time"
 	"v.io/v23"
 	"v.io/v23/context"
+	"v.io/v23/discovery"
 	"v.io/v23/options"
+	"v.io/v23/rpc"
 	"v.io/v23/security"
 
 	_ "v.io/x/ref/runtime/factories/generic"
 )
 
-var flagRightHack = flag.String("right", "", "Temporary flag to play around with invitations")
+var interfaceName = spec.ScreenDesc.PkgPath
 
 type NetworkChannels struct {
 	// Clients read NewLeftScreen to get a channel on which they can send
@@ -33,6 +38,8 @@ func SetupNetwork(chMyScreen chan<- *spec.Triangle) NetworkChannels {
 		newLeftScreen  = make(chan chan<- *spec.Triangle)
 		newRightScreen = make(chan chan<- *spec.Triangle)
 		nm             = &networkManager{
+			myUuid:         make([]byte, 16),
+			chInvited:      make(chan bool),
 			myScreen:       chMyScreen,
 			newLeftScreen:  newLeftScreen,
 			newRightScreen: newRightScreen,
@@ -43,6 +50,10 @@ func SetupNetwork(chMyScreen chan<- *spec.Triangle) NetworkChannels {
 			Ready:          ready,
 		}
 	)
+	if _, err := rand.Read(nm.myUuid); err != nil {
+		go func() { ready <- err }()
+		return ret
+	}
 	go func() {
 		preV23Init()
 		ctx, shutdown := v23.Init()
@@ -52,10 +63,8 @@ func SetupNetwork(chMyScreen chan<- *spec.Triangle) NetworkChannels {
 			ready <- err
 			return
 		}
+		go seekInvites(ctx, server, nm.myUuid, nm.chInvited)
 		go nm.sendInvites(ctx)
-		for idx, ep := range server.Status().Endpoints {
-			ctx.Infof("Server address #%d: %v", idx+1, ep.Name())
-		}
 		close(ready)
 		<-ctx.Done()
 		close(nm.newLeftScreen)
@@ -65,8 +74,10 @@ func SetupNetwork(chMyScreen chan<- *spec.Triangle) NetworkChannels {
 }
 
 type networkManager struct {
-	lock    sync.Mutex
-	invited bool // GUARDED_BY(lock)
+	myUuid    []byte
+	lock      sync.Mutex
+	invited   bool      // GUARDED_BY(lock)
+	chInvited chan bool // True sent when an invite is accepted, false sent otherwise
 
 	myScreen       chan<- *spec.Triangle
 	newLeftScreen  chan<- chan<- *spec.Triangle
@@ -96,6 +107,7 @@ func (nm *networkManager) acceptInvitation() (<-chan *spec.Triangle, error) {
 	ch := make(chan *spec.Triangle)
 	nm.invited = true
 	nm.newLeftScreen <- ch
+	nm.chInvited <- true
 	return ch, nil
 }
 
@@ -105,34 +117,154 @@ func (nm *networkManager) exitInvitation() {
 	if nm.invited {
 		nm.invited = false
 		nm.newLeftScreen <- nil
+		nm.chInvited <- false
 	}
 }
 
 func (nm *networkManager) sendInvites(ctx *context.T) {
-	if len(*flagRightHack) == 0 {
-		return
-	}
+	var cancelLastInvite func()
 	for {
-		nm.newRightScreen <- nil
-		call, err := spec.ScreenClient(*flagRightHack).Invite(ctx, options.ServerAuthorizer{security.AllowEveryone()})
+		if cancelLastInvite != nil {
+			cancelLastInvite()
+			cancelLastInvite = nil
+		}
+		var (
+			rightScreen         spec.ScreenInviteClientCall
+			ctxScan, cancelScan = context.WithCancel(ctx)
+			updates, err        = v23.GetDiscovery(ctxScan).Scan(ctxScan, interfaceName)
+		)
 		if err != nil {
 			ctx.Panic(err)
+		}
+		ctx.Infof("Scanning for peers to invite")
+		for u := range updates {
+			if rightScreen != nil {
+				// Cancel the scan and drain all remaining updates
+				cancelScan()
+				go func() {
+					for range updates {
+					}
+				}()
+				break
+			}
+			if f, ok := u.Interface().(discovery.Found); ok && !bytes.Equal(f.Service.InstanceUuid, nm.myUuid) {
+				// TODO: Something to think about: Do we want a
+				// timeout for the establishment of the stream?
+				//
+				// Alternatively, could have tried connecting
+				// to all addresses in parallel, but then given
+				// the Invite server implementation (where the
+				// method implementation will cancel the RPC if
+				// multiple are pending), it might be possible
+				// that the client and server will be unable to
+				// agree on which RPC is the one to keep?
+				//
+				// For now, try serially, with a timeout for each invite
+				// time between sending the Invites.
+				ctx.Infof("Sending invitation to %+v", f.Service)
+				rightScreen, cancelLastInvite = sendInvitesWithTimeout(ctx, time.Second, f.Service.Addrs) // ctx and not scanCtx because the latter will be canceled
+			}
 		}
 		chRightScreen := make(chan *spec.Triangle)
 		nm.newRightScreen <- chRightScreen
 		chError := make(chan error, 2)
-		go stream2channel(call.RecvStream(), nm.myScreen, +2, chError)
-		go channel2stream(chRightScreen, call.SendStream(), nm.myScreen, chError)
+		go stream2channel(rightScreen.RecvStream(), nm.myScreen, +2, chError)
+		go channel2stream(chRightScreen, rightScreen.SendStream(), nm.myScreen, chError)
 		select {
 		case <-ctx.Done():
-			call.Finish()
+			rightScreen.Finish()
 			return
 		case err := <-chError:
 			if err != nil {
-				ctx.Infof("Lost the right screen: %v", err)
+				ctx.Infof("Right screen has been lost: %v", err)
 			}
-			ctx.Infof("Done with the right screen: %v", call.Finish())
+			ctx.Infof("Right screen has gracefully terminated?: %v", rightScreen.Finish())
 		}
+	}
+}
+
+func sendInvitesWithTimeout(ctx *context.T, timeout time.Duration, addrs []string) (spec.ScreenInviteClientCall, func()) {
+	var (
+		chCall = make(chan spec.ScreenInviteClientCall)
+		chErr  = make(chan error)
+		invite = func(ctx *context.T, addr string) {
+			ctx.Infof("Inviting %v", addr)
+			call, err := spec.ScreenClient(addr).Invite(ctx, options.ServerAuthorizer{security.AllowEveryone()})
+			if err != nil {
+				chErr <- err
+			}
+			if call != nil {
+				ctx.Infof("Invitation accepted by %v", addr)
+				chCall <- call
+			}
+		}
+	)
+	for _, addr := range addrs {
+		ctxInvite, cancel := context.WithCancel(ctx)
+		go invite(ctxInvite, addr)
+		select {
+		case <-time.After(timeout):
+			ctx.Infof("Invitation to %v timed out", addr)
+			cancel()
+		case err := <-chErr:
+			ctx.Infof("Invitation to %v failed: %v", addr, err)
+		case call := <-chCall:
+			return call, cancel
+		}
+	}
+	return nil, nil
+}
+
+func seekInvites(ctx *context.T, server rpc.Server, uuid []byte, updates <-chan bool) {
+	var (
+		// TODO: Thoughts on the discovery API
+		// - Service should be mutable so that if the InstanceUuid is filled in
+		//   then the client gets to know it
+		// - Even InterfaceName should be somehow filled in automatically?
+		service = discovery.Service{
+			InstanceUuid:  uuid,
+			InstanceName:  "triangles",
+			InterfaceName: interfaceName,
+			Attrs: discovery.Attributes{
+				"OS": runtime.GOOS,
+			},
+		}
+		cancel    func()
+		chStopped <-chan struct{}
+		start     = func() {
+			// Set the service, update cancelCtx, cancel and chStopped
+			endpoints := server.Status().Endpoints
+			service.Addrs = make([]string, len(endpoints))
+			for idx, ep := range endpoints {
+				service.Addrs[idx] = ep.Name()
+			}
+			var err error
+			var advCtx *context.T
+			advCtx, cancel = context.WithCancel(ctx)
+			chStopped, err = v23.GetDiscovery(ctx).Advertise(advCtx, service, nil)
+			if err != nil {
+				ctx.Info(err)
+				return
+			}
+			ctx.Infof("Started advertising: %#v", service)
+		}
+		stop = func() {
+			if chStopped == nil {
+				return
+			}
+			cancel()
+			<-chStopped
+			ctx.Infof("Stopped advertising: %#v", service)
+			chStopped = nil
+		}
+	)
+	start()
+	for shouldStop := range updates {
+		if shouldStop {
+			stop()
+			continue
+		}
+		start()
 	}
 }
 
