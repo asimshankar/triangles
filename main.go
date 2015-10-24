@@ -13,16 +13,15 @@ import (
 	"golang.org/x/mobile/event/touch"
 	"golang.org/x/mobile/gl"
 	"log"
+	"math/rand"
 )
 
 func main() {
 	app.Main(func(a app.App) {
 		var (
 			myGL        *GL
-			myTriangles = []*spec.Triangle{
-				&spec.Triangle{B: 1},
-			}
-			sz size.Event
+			myTriangles []*spec.Triangle
+			sz          size.Event
 
 			touchCount int // Number of touch events before the touch stopped
 			touchStart touch.Event
@@ -31,7 +30,13 @@ func main() {
 			leftScreen      = newOtherScreen(nil, chMyScreen)
 			rightScreen     = newOtherScreen(nil, chMyScreen)
 			networkChannels = SetupNetwork(chMyScreen)
+
+			myR, myG, myB = randomColor()
+			spawnTriangle = func() {
+				myTriangles = append(myTriangles, &spec.Triangle{R: myR, G: myG, B: myB})
+			}
 		)
+		spawnTriangle()
 		for {
 			select {
 			case err := <-networkChannels.Ready:
@@ -191,6 +196,14 @@ func returnTriangle(t *spec.Triangle, myScreen chan<- *spec.Triangle) {
 	t.Dx = -1 * t.Dx
 	moveTriangle(t)
 	myScreen <- t
+}
+
+func randomColor() (r, g, b float32) {
+	random := func() float32 {
+		// Pick a number between [30, 255] and normalize it to [0, 1]
+		return float32(rand.Intn(255-29)+30) / 255.0
+	}
+	return random(), random(), random()
 }
 
 const (
