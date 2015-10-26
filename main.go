@@ -23,6 +23,7 @@ func main() {
 			sz      size.Event
 			touches = make(map[touch.Sequence]*touchEvents) // Active touch events
 			scene   = Scene{}
+			debug   *GLDebug
 
 			chMyScreen      = make(chan *spec.Triangle) // New triangles to draw on my screen
 			leftScreen      = newOtherScreen(nil, chMyScreen)
@@ -60,12 +61,14 @@ func main() {
 						if myGL, err = NewGL(glctx); err != nil {
 							log.Panic(err)
 						}
+						debug = NewGLDebug(glctx)
 						a.Send(paint.Event{})
 					case lifecycle.CrossOff:
 						if exitOnLifecycleCrossOff() {
 							return
 						}
 						myGL.Release()
+						debug.Release()
 						myGL = nil
 					}
 				case paint.Event:
@@ -92,6 +95,7 @@ func main() {
 					}
 					scene.Triangles = mine
 					myGL.Paint(scene)
+					debug.Paint(sz)
 					a.Publish()
 					a.Send(paint.Event{})
 				case size.Event:

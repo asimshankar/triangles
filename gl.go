@@ -37,7 +37,6 @@ func NewGL(ctx gl.Context) (*GL, error) {
 		color:    ctx.GetUniformLocation(program, "color"),
 		offset:   ctx.GetUniformLocation(program, "offset"),
 	}
-	ctx.BindBuffer(gl.ARRAY_BUFFER, g.buf)
 	return g, nil
 }
 
@@ -63,9 +62,9 @@ func (g *GL) Paint(scn Scene) {
 
 	g.ctx.UseProgram(g.program)
 
-	g.ctx.EnableVertexAttribArray(g.position)
-
+	g.ctx.BindBuffer(gl.ARRAY_BUFFER, g.buf)
 	g.ctx.BufferData(gl.ARRAY_BUFFER, triangleData, gl.STATIC_DRAW)
+	g.ctx.EnableVertexAttribArray(g.position)
 	g.ctx.VertexAttribPointer(g.position, coordsPerVertex, gl.FLOAT, false, 0, 0)
 	for _, t := range scn.Triangles {
 		g.ctx.Uniform4f(g.color, t.R, t.G, t.B, 1)
