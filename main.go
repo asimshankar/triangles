@@ -19,10 +19,10 @@ import (
 func main() {
 	app.Main(func(a app.App) {
 		var (
-			myGL        *GL
-			myTriangles []*spec.Triangle
-			sz          size.Event
-			touches     = make(map[touch.Sequence]*touchEvents) // Active touch events
+			myGL    *GL
+			sz      size.Event
+			touches = make(map[touch.Sequence]*touchEvents) // Active touch events
+			scene   = Scene{}
 
 			chMyScreen      = make(chan *spec.Triangle) // New triangles to draw on my screen
 			leftScreen      = newOtherScreen(nil, chMyScreen)
@@ -31,7 +31,7 @@ func main() {
 
 			myR, myG, myB = randomColor()
 			spawnTriangle = func() {
-				myTriangles = append(myTriangles, &spec.Triangle{R: myR, G: myG, B: myB})
+				scene.Triangles = append(scene.Triangles, &spec.Triangle{R: myR, G: myG, B: myB})
 			}
 		)
 		spawnTriangle()
@@ -49,7 +49,7 @@ func main() {
 				rightScreen.close()
 				rightScreen = newOtherScreen(ch, chMyScreen)
 			case t := <-chMyScreen:
-				myTriangles = append(myTriangles, t)
+				scene.Triangles = append(scene.Triangles, t)
 			case e := <-a.Events():
 				switch e := a.Filter(e).(type) {
 				case lifecycle.Event:
@@ -73,7 +73,7 @@ func main() {
 						continue
 					}
 					var mine, left, right []*spec.Triangle
-					for _, t := range myTriangles {
+					for _, t := range scene.Triangles {
 						moveTriangle(t)
 						switch {
 						case t.X <= -1:
@@ -90,8 +90,8 @@ func main() {
 					if len(right) > 0 {
 						go rightScreen.send(right)
 					}
-					myTriangles = mine
-					myGL.Paint(myTriangles)
+					scene.Triangles = mine
+					myGL.Paint(scene)
 					a.Publish()
 					a.Send(paint.Event{})
 				case size.Event:
@@ -116,7 +116,7 @@ func main() {
 							closestT      *spec.Triangle
 							minDistanceSq float32
 						)
-						for idx, t := range myTriangles {
+						for idx, t := range scene.Triangles {
 							if d := (x-t.X)*(x-t.X) + (y-t.Y)*(y-t.Y); d < minDistanceSq || idx == 0 {
 								minDistanceSq = d
 								closestT = t

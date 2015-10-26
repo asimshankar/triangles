@@ -38,7 +38,6 @@ func NewGL(ctx gl.Context) (*GL, error) {
 		offset:   ctx.GetUniformLocation(program, "offset"),
 	}
 	ctx.BindBuffer(gl.ARRAY_BUFFER, g.buf)
-	ctx.BufferData(gl.ARRAY_BUFFER, triangleData, gl.STATIC_DRAW)
 	return g, nil
 }
 
@@ -50,7 +49,12 @@ func (g *GL) Release() {
 	g.ctx.DeleteBuffer(g.buf)
 }
 
-func (g *GL) Paint(triangles []*spec.Triangle) {
+// Scene represents the state of the game to be painted on the screen.
+type Scene struct {
+	Triangles []*spec.Triangle
+}
+
+func (g *GL) Paint(scn Scene) {
 	if g == nil {
 		return
 	}
@@ -60,8 +64,10 @@ func (g *GL) Paint(triangles []*spec.Triangle) {
 	g.ctx.UseProgram(g.program)
 
 	g.ctx.EnableVertexAttribArray(g.position)
+
+	g.ctx.BufferData(gl.ARRAY_BUFFER, triangleData, gl.STATIC_DRAW)
 	g.ctx.VertexAttribPointer(g.position, coordsPerVertex, gl.FLOAT, false, 0, 0)
-	for _, t := range triangles {
+	for _, t := range scn.Triangles {
 		g.ctx.Uniform4f(g.color, t.R, t.G, t.B, 1)
 		g.ctx.Uniform2f(g.offset, t.X, t.Y)
 		g.ctx.DrawArrays(gl.TRIANGLES, 0, vertexCount)
