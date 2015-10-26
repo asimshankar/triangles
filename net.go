@@ -5,8 +5,8 @@ import (
 	"crypto/rand"
 	"fmt"
 	"github.com/asimshankar/triangles/spec"
+	"os"
 	"runtime"
-	"sync"
 	"time"
 	"v.io/v23"
 	"v.io/v23/context"
@@ -14,6 +14,7 @@ import (
 	"v.io/v23/options"
 	"v.io/v23/rpc"
 	"v.io/v23/security"
+	"v.io/x/ref"
 
 	_ "v.io/x/ref/runtime/factories/generic"
 )
@@ -38,11 +39,8 @@ func SetupNetwork(chMyScreen chan<- *spec.Triangle) NetworkChannels {
 		newLeftScreen  = make(chan chan<- *spec.Triangle)
 		newRightScreen = make(chan chan<- *spec.Triangle)
 		nm             = &networkManager{
-			myUuid:         make([]byte, 16),
-			chInvited:      make(chan bool),
-			myScreen:       chMyScreen,
-			newLeftScreen:  newLeftScreen,
-			newRightScreen: newRightScreen,
+			myScreen: chMyScreen,
+			invites:  make(chan invitation),
 		}
 		ret = NetworkChannels{
 			NewLeftScreen:  newLeftScreen,
@@ -50,169 +48,190 @@ func SetupNetwork(chMyScreen chan<- *spec.Triangle) NetworkChannels {
 			Ready:          ready,
 		}
 	)
-	if _, err := rand.Read(nm.myUuid); err != nil {
-		go func() { ready <- err }()
-		return ret
-	}
-	go func() {
-		preV23Init()
-		ctx, shutdown := v23.Init()
-		defer shutdown()
-		ctx, server, err := v23.WithNewServer(ctx, "", spec.ScreenServer(nm), security.AllowEveryone())
-		if err != nil {
-			ready <- err
-			return
-		}
-		go seekInvites(ctx, server, nm.myUuid, nm.chInvited)
-		go nm.sendInvites(ctx)
-		close(ready)
-		<-ctx.Done()
-		close(nm.newLeftScreen)
-		close(nm.newRightScreen)
-	}()
+	go nm.run(ready, newLeftScreen, newRightScreen)
 	return ret
 }
 
 type networkManager struct {
-	myUuid    []byte
-	lock      sync.Mutex
-	invited   bool      // GUARDED_BY(lock)
-	chInvited chan bool // True sent when an invite is accepted, false sent otherwise
-
-	myScreen       chan<- *spec.Triangle
-	newLeftScreen  chan<- chan<- *spec.Triangle
-	newRightScreen chan<- chan<- *spec.Triangle
+	myScreen chan<- *spec.Triangle
+	invites  chan invitation
 }
 
-func (nm *networkManager) Invite(ctx *context.T, call spec.ScreenInviteServerCall) error {
-	chLeftScreen, err := nm.acceptInvitation()
+func (nm *networkManager) run(ready chan<- error, newLeftScreen, newRightScreen chan<- chan<- *spec.Triangle) {
+	defer close(nm.myScreen)
+	defer close(newLeftScreen)
+	defer close(newRightScreen)
+	// TODO: Remove this: It seems that v23 will ultimately transition to this being the default.
+	os.Setenv(ref.RPCTransitionStateVar, "xservers")
+	myUuid := make([]byte, 16)
+	if _, err := rand.Read(myUuid); err != nil {
+		ready <- err
+		return
+	}
+	preV23Init()
+	ctx, shutdown := v23.Init()
+	defer shutdown()
+	ctx, server, err := v23.WithNewServer(ctx, "", spec.ScreenServer(nm), security.AllowEveryone())
 	if err != nil {
-		return err
+		ready <- err
+		return
 	}
-	defer nm.exitInvitation()
-	blessings, rejected := security.RemoteBlessingNames(ctx, call.Security())
-	ctx.Infof("Accepted invitation from %v (rejected blessings: %v)", blessings, rejected)
-	chError := make(chan error, 2) // Buffered so that we don't have to worry about the two goroutines blocking
-	go stream2channel(call.RecvStream(), nm.myScreen, -2, chError)
-	go channel2stream(chLeftScreen, call.SendStream(), nm.myScreen, chError)
-	return <-chError
-}
-
-func (nm *networkManager) acceptInvitation() (<-chan *spec.Triangle, error) {
-	nm.lock.Lock()
-	defer nm.lock.Unlock()
-	if nm.invited {
-		return nil, fmt.Errorf("thanks for the invite, but I'm already engaged with a previous invitation")
-	}
-	ch := make(chan *spec.Triangle)
-	nm.invited = true
-	nm.newLeftScreen <- ch
-	nm.chInvited <- true
-	return ch, nil
-}
-
-func (nm *networkManager) exitInvitation() {
-	nm.lock.Lock()
-	defer nm.lock.Unlock()
-	if nm.invited {
-		nm.invited = false
-		nm.newLeftScreen <- nil
-		nm.chInvited <- false
-	}
-}
-
-func (nm *networkManager) sendInvites(ctx *context.T) {
-	var cancelLastInvite func()
+	close(ready)
+	var (
+		left     = remoteScreen{myScreen: nm.myScreen, notify: newLeftScreen}
+		right    = remoteScreen{myScreen: nm.myScreen, notify: newRightScreen}
+		accepted = make(chan string) // Names of remote screens that accepted an invitation
+		seek     = make(chan bool)   // Send false to stop seeking invitations from others, true otherwise
+	)
+	go seekInvites(ctx, server, myUuid, seek)
+	go sendInvites(ctx, myUuid, accepted)
 	for {
-		if cancelLastInvite != nil {
-			cancelLastInvite()
-			cancelLastInvite = nil
-		}
-		var (
-			rightScreen         spec.ScreenInviteClientCall
-			ctxScan, cancelScan = context.WithCancel(ctx)
-			updates, err        = v23.GetDiscovery(ctxScan).Scan(ctxScan, interfaceName)
-		)
-		if err != nil {
-			ctx.Panic(err)
-		}
-		ctx.Infof("Scanning for peers to invite")
-		for u := range updates {
-			if rightScreen != nil {
-				// Cancel the scan and drain all remaining updates
-				cancelScan()
-				go func() {
-					for range updates {
-					}
-				}()
+		select {
+		case invitation := <-nm.invites:
+			if left.Active() {
+				invitation.Response <- fmt.Errorf("thanks for the invite but I'm already engaged with a previous invitation")
 				break
 			}
-			if f, ok := u.Interface().(discovery.Found); ok && !bytes.Equal(f.Service.InstanceUuid, nm.myUuid) {
-				// TODO: Something to think about: Do we want a
-				// timeout for the establishment of the stream?
-				//
-				// Alternatively, could have tried connecting
-				// to all addresses in parallel, but then given
-				// the Invite server implementation (where the
-				// method implementation will cancel the RPC if
-				// multiple are pending), it might be possible
-				// that the client and server will be unable to
-				// agree on which RPC is the one to keep?
-				//
-				// For now, try serially, with a timeout for each invite
-				// time between sending the Invites.
-				ctx.Infof("Sending invitation to %+v", f.Service)
-				rightScreen, cancelLastInvite = sendInvitesWithTimeout(ctx, time.Second, f.Service.Addrs) // ctx and not scanCtx because the latter will be canceled
-			}
-		}
-		chRightScreen := make(chan *spec.Triangle)
-		nm.newRightScreen <- chRightScreen
-		chError := make(chan error, 2)
-		go stream2channel(rightScreen.RecvStream(), nm.myScreen, +2, chError)
-		go channel2stream(chRightScreen, rightScreen.SendStream(), nm.myScreen, chError)
-		select {
+			invitation.Response <- nil
+			ctx.Infof("Activating left screen %q", invitation.Name)
+			left.Activate(ctx, invitation.Name)
+			seek <- false
+		case <-left.Lost():
+			ctx.Infof("Deactivating left screen")
+			left.Deactivate()
+			seek <- true
+		case invitee := <-accepted:
+			ctx.Infof("Activating right screen %q", invitee)
+			right.Activate(ctx, invitee)
+		case <-right.Lost():
+			ctx.Infof("Deactivating right screen")
+			right.Deactivate()
+			go sendInvites(ctx, myUuid, accepted)
 		case <-ctx.Done():
-			rightScreen.Finish()
 			return
-		case err := <-chError:
-			if err != nil {
-				ctx.Infof("Right screen has been lost: %v", err)
-			}
-			ctx.Infof("Right screen has gracefully terminated?: %v", rightScreen.Finish())
 		}
 	}
 }
 
-func sendInvitesWithTimeout(ctx *context.T, timeout time.Duration, addrs []string) (spec.ScreenInviteClientCall, func()) {
-	var (
-		chCall = make(chan spec.ScreenInviteClientCall)
-		chErr  = make(chan error)
-		invite = func(ctx *context.T, addr string) {
-			ctx.Infof("Inviting %v", addr)
-			call, err := spec.ScreenClient(addr).Invite(ctx, options.ServerAuthorizer{security.AllowEveryone()})
-			if err != nil {
-				chErr <- err
-			}
-			if call != nil {
-				ctx.Infof("Invitation accepted by %v", addr)
-				chCall <- call
-			}
+type remoteScreen struct {
+	lost <-chan error // State changed by activate/deactivate
+	// State fixed at construction time
+	myScreen chan<- *spec.Triangle
+	notify   chan<- chan<- *spec.Triangle
+}
+
+func (s *remoteScreen) Active() bool       { return s.lost != nil }
+func (s *remoteScreen) Lost() <-chan error { return s.lost }
+func (s *remoteScreen) Activate(ctx *context.T, name string) {
+	errch := make(chan error)
+	s.lost = errch
+	ch := make(chan *spec.Triangle)
+	go channel2rpc(ctx, ch, name, errch, s.myScreen)
+	s.notify <- ch
+}
+func (s *remoteScreen) Deactivate() {
+	s.lost = nil
+	s.notify <- nil
+}
+
+type invitation struct {
+	Name     string
+	Response chan<- error
+}
+
+func (nm *networkManager) Invite(ctx *context.T, call rpc.ServerCall) error {
+	inviter := call.RemoteEndpoint().Name()
+	response := make(chan error)
+	nm.invites <- invitation{Name: inviter, Response: response}
+	if err := <-response; err != nil {
+		return err
+	}
+	blessings, rejected := security.RemoteBlessingNames(ctx, call.Security())
+	ctx.Infof("Accepted invitation from %v@%v (rejected blessings: %v)", blessings, inviter, rejected)
+	return nil
+}
+
+func (nm *networkManager) Give(ctx *context.T, call rpc.ServerCall, t spec.Triangle) error {
+	if ctx.V(3) {
+		blessings, rejected := security.RemoteBlessingNames(ctx, call.Security())
+		ctx.Infof("Took a triangle from %v@%v (rejected blessings: %v)", blessings, call.RemoteEndpoint().Name(), rejected)
+	}
+	// Transform from sender's coordinates to our coordinates.
+	// The assumption is that if the triangle was to the left of the
+	// sender's coordinate system, then it will appear on our right and
+	// vice-versa.
+	switch {
+	case t.X < -1:
+		t.X += 2
+	case t.X > 1:
+		t.X -= 2
+	}
+	nm.myScreen <- &t
+	return nil
+}
+
+func sendInvites(ctx *context.T, myUuid []byte, notify chan<- string) {
+	ctx.Infof("Scanning for peers to invite")
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	updates, err := v23.GetDiscovery(ctx).Scan(ctx, interfaceName)
+	if err != nil {
+		ctx.Panic(err)
+	}
+	for u := range updates {
+		found, ok := u.Interface().(discovery.Found)
+		if !ok || bytes.Equal(found.Service.InstanceUuid, myUuid) {
+			continue
 		}
-	)
-	for _, addr := range addrs {
-		ctxInvite, cancel := context.WithCancel(ctx)
-		go invite(ctxInvite, addr)
-		select {
-		case <-time.After(timeout):
-			ctx.Infof("Invitation to %v timed out", addr)
-			cancel()
-		case err := <-chErr:
-			ctx.Infof("Invitation to %v failed: %v", addr, err)
-		case call := <-chCall:
-			return call, cancel
+		ctx.Infof("Sending invitations to %+v", found.Service)
+		if addr := sendOneInvite(ctx, found.Service.Addrs); len(addr) > 0 {
+			notify <- addr
+			go func() {
+				for range updates {
+				}
+			}()
+			return
 		}
 	}
-	return nil, nil
+	ctx.Infof("Stopped scanning for peers to invite without finding one")
+}
+
+// sendOneInvite sends invitations to all the addresses in addrs and returns the one that accepted it.
+// All addrs are assumed to be equivalent and thus at most one Invite RPC will succeed.
+//
+// TODO: This is aiming to replicate what the RPC stack does for all the
+// addresses a single name resolved to. Should all these addresses discovered
+// somehow be encapsulated in a single object name?
+func sendOneInvite(ctx *context.T, addrs []string) string {
+	// Give at most 1 second for these connections to be made, if they
+	// can't be made then consider the peer bad and ignore it.
+	ctx, cancel := context.WithTimeout(ctx, maxInvitationWaitTime)
+	defer cancel()
+	ch := make(chan string)
+	for _, addr := range addrs {
+		go func(addr string) {
+			err := spec.ScreenClient(addr).Invite(ctx, options.ServerAuthorizer{security.AllowEveryone()})
+			ctx.Infof("Invitation to %v sent, error: %v", addr, err)
+			if err == nil {
+				ch <- addr
+				return
+			}
+			ch <- ""
+		}(addr)
+	}
+	for i := range addrs {
+		if ret := <-ch; len(ret) > 0 {
+			// Drain the rest and return
+			go func() {
+				i++
+				for i < len(addrs) {
+					<-ch
+				}
+			}()
+			return ret
+		}
+	}
+	return ""
 }
 
 func seekInvites(ctx *context.T, server rpc.Server, uuid []byte, updates <-chan bool) {
@@ -243,7 +262,7 @@ func seekInvites(ctx *context.T, server rpc.Server, uuid []byte, updates <-chan 
 			advCtx, cancel = context.WithCancel(ctx)
 			chStopped, err = v23.GetDiscovery(ctx).Advertise(advCtx, service, nil)
 			if err != nil {
-				ctx.Info(err)
+				ctx.Infof("Failed to advertise %#v: %v", service, err)
 				return
 			}
 			ctx.Infof("Started advertising: %#v", service)
@@ -259,44 +278,35 @@ func seekInvites(ctx *context.T, server rpc.Server, uuid []byte, updates <-chan 
 		}
 	)
 	start()
-	for shouldStop := range updates {
-		if shouldStop {
-			stop()
+	for shouldStart := range updates {
+		if shouldStart {
+			start()
 			continue
 		}
-		start()
+		stop()
 	}
 }
 
-type triangleRecvStream interface {
-	Advance() bool
-	Value() spec.Triangle
-	Err() error
-}
-
-type triangleSendStream interface {
-	Send(spec.Triangle) error
-}
-
-func stream2channel(in triangleRecvStream, out chan<- *spec.Triangle, deltaX float32, errch chan<- error) {
-	for in.Advance() {
-		t := in.Value()
-		t.X = t.X + deltaX // transform from in coordinates to out coordinates
-		out <- &t
-	}
-	errch <- in.Err()
-}
-
-func channel2stream(in <-chan *spec.Triangle, out triangleSendStream, fallback chan<- *spec.Triangle, errch chan<- error) {
-	for t := range in {
-		if err := out.Send(*t); err != nil {
+func channel2rpc(ctx *context.T, src <-chan *spec.Triangle, dst string, errch chan<- error, myScreen chan<- *spec.Triangle) {
+	for t := range src {
+		// This is an "interactive" game, if an RPC doesn't succeed in say
+		ctxTimeout, cancel := context.WithTimeout(ctx, maxTriangleGiveTime)
+		if err := spec.ScreenClient(dst).Give(ctxTimeout, *t, options.ServerAuthorizer{security.AllowEveryone()}); err != nil {
+			cancel()
+			returnTriangle(t, myScreen)
+			ctx.Infof("%q.Give failed: %v, aborting connection with remote screen", dst, err)
 			errch <- err
 			break
 		}
+		cancel()
 	}
-	// out is dead, reflect triangles back into in.
-	for t := range in {
-		t.Dx = -1 * t.Dx
-		fallback <- t
+	for t := range src {
+		returnTriangle(t, myScreen)
 	}
+	ctx.VI(1).Infof("Exiting goroutine with connection to %q", dst)
 }
+
+const (
+	maxInvitationWaitTime = time.Second
+	maxTriangleGiveTime   = 100 * time.Millisecond // A low value is fine here, thanks to bidirectional RPCing, there is no connection setup
+)

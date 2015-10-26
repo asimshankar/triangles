@@ -19,16 +19,20 @@ type Triangle struct {
 
 // Screen represents a remote screen that can be invited to grab triangles.
 type Screen interface {
-	// Invite is a request to the receiver to join the set of
-	// screens that the caller is participating in, by standing
-	// to the right of the caller.
+	// Invite is a request to the receiver to join the set of screens that
+	// the caller is participating in, by standing to the right of the
+	// caller.
 	//
-	// A Screen can be active on at most one invitation at a time
-	// and should return an error if it is engaged in a previous
-	// invitation.
+	// A Screen can be active on at most one invitation at a time and
+	// should return an error if it is engaged in a previous invitation.
+	Invite() error
+
+	// Give is a request by the caller for the receiver to take ownership
+	// of the provided triangle.
 	//
-	// The caller streams triangles that have fallen of the right
-	// side of its screen and should appear on the left side of
-	// the receiver, and the receiver streams the opposite back.
-	Invite() stream<Triangle, Triangle> error
+	// Give is typically invoked on the receiver by the adjacent screen
+	// when a triangle falls off that adjacent screen. However, this is not
+	// a requirement and Give can be invoked by an arbitrary client to
+	// manufacture a new triangle.
+	Give(t Triangle) error
 }
