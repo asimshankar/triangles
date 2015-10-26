@@ -6,6 +6,7 @@ import (
 	"golang.org/x/mobile/exp/f32"
 	"golang.org/x/mobile/exp/gl/glutil"
 	"golang.org/x/mobile/gl"
+	"math"
 )
 
 // GL encapsulates all the GL commands for drawing a set of spec.Triangles.
@@ -85,15 +86,16 @@ void main() {
 	gl_FragColor = color;
 }`
 
-	coordsPerVertex = 3
-	vertexCount     = 3
-	triangleHeight  = 0.4 // In OpenGL coordinates where the full screen in of size 2 [-1, 1]
+	coordsPerVertex         = 3
+	vertexCount             = 3
+	triangleSide    float32 = 0.4 // In OpenGL coordinates where the full screen in of size 2 [-1, 1]
 )
 
 var (
-	triangleData = f32.Bytes(binary.LittleEndian,
-		0.0, triangleHeight, 0.0, // top left
-		0.0, 0.0, 0.0, // bottom left
-		triangleHeight, 0.0, 0.0, // bottom right
+	triangleHeight = float32(math.Sqrt(3)) * triangleSide / 2
+	triangleData   = f32.Bytes(binary.LittleEndian,
+		-triangleSide/2, -triangleHeight/2, 0, // bottom left
+		0, triangleHeight/2, 0, // top
+		triangleSide/2, -triangleHeight/2, 0, // bottom right
 	)
 )

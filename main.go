@@ -188,9 +188,9 @@ func moveTriangle(t *spec.Triangle) {
 	if t.Y <= -1 {
 		t.Dy = -1 * t.Dy
 		t.Y = -1
-	} else if t.Y >= 1-triangleHeight {
+	} else if t.Y >= 1 {
 		t.Dy = -1 * t.Dy
-		t.Y = 1 - triangleHeight
+		t.Y = 1
 	}
 }
 
