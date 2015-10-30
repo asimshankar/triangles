@@ -48,9 +48,17 @@ func (g *GL) Release() {
 	g.ctx.DeleteBuffer(g.buf)
 }
 
+type Color struct {
+	R, G, B float32
+}
+
 // Scene represents the state of the game to be painted on the screen.
 type Scene struct {
 	Triangles []*spec.Triangle
+
+	// If non-nil, a banner will be draw along the right/left edge of the screen respectively.
+	RightBanner *Color
+	LeftBanner  *Color
 }
 
 func (g *GL) Paint(scn Scene) {
@@ -71,6 +79,20 @@ func (g *GL) Paint(scn Scene) {
 		g.ctx.Uniform2f(g.offset, t.X, t.Y)
 		g.ctx.DrawArrays(gl.TRIANGLES, 0, vertexCount)
 	}
+	if c := scn.RightBanner; c != nil {
+		g.ctx.BufferData(gl.ARRAY_BUFFER, rightBannerData, gl.STATIC_DRAW)
+		g.ctx.Uniform4f(g.color, c.R, c.G, c.B, 1)
+		g.ctx.Uniform2f(g.offset, 0, 0)
+		g.ctx.DrawArrays(gl.TRIANGLE_FAN, 0, 4)
+	}
+
+	if c := scn.LeftBanner; c != nil {
+		g.ctx.BufferData(gl.ARRAY_BUFFER, leftBannerData, gl.STATIC_DRAW)
+		g.ctx.Uniform4f(g.color, c.R, c.G, c.B, 1)
+		g.ctx.Uniform2f(g.offset, 0, 0)
+		g.ctx.DrawArrays(gl.TRIANGLE_FAN, 0, 4)
+	}
+
 	g.ctx.DisableVertexAttribArray(g.position)
 }
 
@@ -94,6 +116,7 @@ void main() {
 	coordsPerVertex         = 3
 	vertexCount             = 3
 	triangleSide    float32 = 0.4 // In OpenGL coordinates where the full screen in of size 2 [-1, 1]
+	bannerWidth             = 0.1
 )
 
 var (
@@ -102,5 +125,17 @@ var (
 		-triangleSide/2, -triangleHeight/2, 0, // bottom left
 		0, triangleHeight/2, 0, // top
 		triangleSide/2, -triangleHeight/2, 0, // bottom right
+	)
+	rightBannerData = f32.Bytes(binary.LittleEndian,
+		1-bannerWidth, 1, 0,
+		1, 1, 0,
+		1, -1, 0,
+		1-bannerWidth, -1, 0,
+	)
+	leftBannerData = f32.Bytes(binary.LittleEndian,
+		-1, 1, 0,
+		-1+bannerWidth, 1, 0,
+		-1+bannerWidth, -1, 0,
+		-1, -1, 0,
 	)
 )
