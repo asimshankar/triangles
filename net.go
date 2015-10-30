@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/md5"
 	"crypto/rand"
 	"fmt"
 	"github.com/asimshankar/triangles/spec"
@@ -22,20 +23,22 @@ import (
 var interfaceName = spec.ScreenDesc.PkgPath
 
 type NetworkChannels struct {
+	// When the network setup is complete, the Color to be used is written
+	// to the channel. If the network setup fails, an error is written
+	// do the channel.
+	// Exactly one item is written to the channel before it is closed.
+	Ready <-chan interface{}
 	// Clients read NewLeftScreen to get a channel on which they can send
 	// triangles to the screen on the left.
 	NewLeftScreen <-chan (chan<- *spec.Triangle)
 	// Clients read NewRightScreen to get a channel on which they can send
 	// triangles to the screen on the right.
 	NewRightScreen <-chan (chan<- *spec.Triangle)
-	// Ready is closed when the network is setup correctly, or an error is
-	// sent if network setup failed.
-	Ready <-chan error
 }
 
 func SetupNetwork(chMyScreen chan<- *spec.Triangle) NetworkChannels {
 	var (
-		ready          = make(chan error)
+		ready          = make(chan interface{})
 		newLeftScreen  = make(chan chan<- *spec.Triangle)
 		newRightScreen = make(chan chan<- *spec.Triangle)
 		nm             = &networkManager{
@@ -57,15 +60,20 @@ type networkManager struct {
 	invites  chan invitation
 }
 
-func (nm *networkManager) run(ready chan<- error, newLeftScreen, newRightScreen chan<- chan<- *spec.Triangle) {
+func (nm *networkManager) run(ready chan<- interface{}, newLeftScreen, newRightScreen chan<- chan<- *spec.Triangle) {
 	defer close(nm.myScreen)
 	defer close(newLeftScreen)
 	defer close(newRightScreen)
+	notifyReady := func(result interface{}) {
+		ready <- result
+		close(ready)
+		ready = nil
+	}
 	// TODO: Remove this: It seems that v23 will ultimately transition to this being the default.
 	os.Setenv(ref.RPCTransitionStateVar, "xservers")
 	myUuid := make([]byte, 16)
 	if _, err := rand.Read(myUuid); err != nil {
-		ready <- err
+		notifyReady(err)
 		return
 	}
 	preV23Init()
@@ -73,10 +81,11 @@ func (nm *networkManager) run(ready chan<- error, newLeftScreen, newRightScreen 
 	defer shutdown()
 	ctx, server, err := v23.WithNewServer(ctx, "", spec.ScreenServer(nm), security.AllowEveryone())
 	if err != nil {
-		ready <- err
+		notifyReady(err)
 		return
 	}
-	close(ready)
+	// Select a color based on some unique identifier of the process, the PublicKey serves as one.
+	notifyReady(selectColor(v23.GetPrincipal(ctx).PublicKey()))
 	var (
 		left     = remoteScreen{myScreen: nm.myScreen, notify: newLeftScreen}
 		right    = remoteScreen{myScreen: nm.myScreen, notify: newRightScreen}
@@ -304,6 +313,21 @@ func channel2rpc(ctx *context.T, src <-chan *spec.Triangle, dst string, errch ch
 		returnTriangle(t, myScreen)
 	}
 	ctx.VI(1).Infof("Exiting goroutine with connection to %q", dst)
+}
+
+func selectColor(key security.PublicKey) Color {
+	var (
+		bytes, _ = key.MarshalBinary()
+		uid      = md5.Sum(bytes)
+		pick     = func(idx int) float32 {
+			//  Keep component between [30, 225] instead of [0,255]
+			// to avoid white and black - and then normalize to [0, 1]
+			return (30 + (float32(uid[idx])/255.0)*(225-30)) / 255
+		}
+	)
+	// Consider md5 to have uniform randomness in all its bytes.
+	// We're just selecting a color, no need to fret if it doesn't.
+	return Color{R: pick(0), G: pick(7), B: pick(15)}
 }
 
 const (

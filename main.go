@@ -13,7 +13,7 @@ import (
 	"golang.org/x/mobile/event/touch"
 	"golang.org/x/mobile/gl"
 	"log"
-	"math/rand"
+	"time"
 )
 
 func main() {
@@ -30,19 +30,26 @@ func main() {
 			rightScreen     = newOtherScreen(nil, chMyScreen)
 			networkChannels = SetupNetwork(chMyScreen)
 
-			myR, myG, myB = randomColor()
+			myColor       Color
 			spawnTriangle = func() {
-				scene.Triangles = append(scene.Triangles, &spec.Triangle{R: myR, G: myG, B: myB})
+				scene.Triangles = append(scene.Triangles, &spec.Triangle{R: myColor.R, G: myColor.G, B: myColor.B})
 			}
+
+			ticker = time.Tick(time.Second)
 		)
-		spawnTriangle()
 		for {
 			select {
-			case err := <-networkChannels.Ready:
-				if err != nil {
-					log.Panic(err)
+			case ready := <-networkChannels.Ready:
+				switch v := ready.(type) {
+				case error:
+					log.Panic(v)
+				case Color:
+					myColor = v
+					spawnTriangle()
+				default:
+					log.Panicf("Unexpected type from the Ready channel: %T (%v)", ready, ready)
 				}
-				networkChannels.Ready = nil // To stop this select clause from being hit.
+				networkChannels.Ready = nil // To stop this select clause from being hit again.
 			case ch := <-networkChannels.NewLeftScreen:
 				leftScreen.close()
 				leftScreen = newOtherScreen(ch, chMyScreen)
@@ -51,6 +58,16 @@ func main() {
 				rightScreen = newOtherScreen(ch, chMyScreen)
 			case t := <-chMyScreen:
 				scene.Triangles = append(scene.Triangles, t)
+			case <-ticker:
+				if scene.LeftBanner == nil && scene.RightBanner == nil {
+					scene.LeftBanner = &myColor
+				} else if scene.LeftBanner != nil {
+					scene.RightBanner = &myColor
+					scene.LeftBanner = nil
+				} else {
+					scene.RightBanner = nil
+					scene.LeftBanner = &myColor
+				}
 			case e := <-a.Events():
 				switch e := a.Filter(e).(type) {
 				case lifecycle.Event:
@@ -202,14 +219,6 @@ func returnTriangle(t *spec.Triangle, myScreen chan<- *spec.Triangle) {
 	t.Dx = -1 * t.Dx
 	moveTriangle(t)
 	myScreen <- t
-}
-
-func randomColor() (r, g, b float32) {
-	random := func() float32 {
-		// Pick a number between [30, 255] and normalize it to [0, 1]
-		return float32(rand.Intn(255-29)+30) / 255.0
-	}
-	return random(), random(), random()
 }
 
 const (
