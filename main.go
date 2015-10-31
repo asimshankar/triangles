@@ -205,6 +205,7 @@ func (s *otherScreen) send(triangles []*spec.Triangle) {
 		for _, t := range triangles {
 			returnTriangle(t, s.chSelf)
 		}
+		return
 	}
 	for i, t := range triangles {
 		select {
