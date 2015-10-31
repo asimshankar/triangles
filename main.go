@@ -30,9 +30,9 @@ func main() {
 			rightScreen     = newOtherScreen(nil, chMyScreen)
 			networkChannels = SetupNetwork(chMyScreen)
 
-			myColor       Color
 			spawnTriangle = func() {
-				scene.Triangles = append(scene.Triangles, &spec.Triangle{R: myColor.R, G: myColor.G, B: myColor.B})
+				c := scene.TopBanner
+				scene.Triangles = append(scene.Triangles, &spec.Triangle{R: c.R, G: c.G, B: c.B})
 			}
 
 			ticker = time.Tick(time.Second)
@@ -44,7 +44,7 @@ func main() {
 				case error:
 					log.Panic(v)
 				case Color:
-					myColor = v
+					scene.TopBanner = v
 					spawnTriangle()
 				default:
 					log.Panicf("Unexpected type from the Ready channel: %T (%v)", ready, ready)
@@ -59,14 +59,10 @@ func main() {
 			case t := <-chMyScreen:
 				scene.Triangles = append(scene.Triangles, t)
 			case <-ticker:
-				if scene.LeftBanner == nil && scene.RightBanner == nil {
-					scene.LeftBanner = &myColor
-				} else if scene.LeftBanner != nil {
-					scene.RightBanner = &myColor
-					scene.LeftBanner = nil
+				if scene.LeftBanner == nil {
+					scene.LeftBanner = &scene.TopBanner
 				} else {
-					scene.RightBanner = nil
-					scene.LeftBanner = &myColor
+					scene.LeftBanner = nil
 				}
 			case e := <-a.Events():
 				switch e := a.Filter(e).(type) {

@@ -54,11 +54,9 @@ type Color struct {
 
 // Scene represents the state of the game to be painted on the screen.
 type Scene struct {
-	Triangles []*spec.Triangle
-
-	// If non-nil, a banner will be draw along the right/left edge of the screen respectively.
-	RightBanner *Color
-	LeftBanner  *Color
+	Triangles  []*spec.Triangle
+	TopBanner  Color  // Color of the banner to be drawn on the top of the screen identifying this screen.
+	LeftBanner *Color // If non-nil, a banner of this color will be drawn on the left edge.
 }
 
 func (g *GL) Paint(scn Scene) {
@@ -79,20 +77,18 @@ func (g *GL) Paint(scn Scene) {
 		g.ctx.Uniform2f(g.offset, t.X, t.Y)
 		g.ctx.DrawArrays(gl.TRIANGLES, 0, vertexCount)
 	}
-	if c := scn.RightBanner; c != nil {
-		g.ctx.BufferData(gl.ARRAY_BUFFER, rightBannerData, gl.STATIC_DRAW)
+	if c := scn.TopBanner; true {
+		g.ctx.BufferData(gl.ARRAY_BUFFER, topBannerData, gl.STATIC_DRAW)
 		g.ctx.Uniform4f(g.color, c.R, c.G, c.B, 1)
 		g.ctx.Uniform2f(g.offset, 0, 0)
 		g.ctx.DrawArrays(gl.TRIANGLE_FAN, 0, 4)
 	}
-
 	if c := scn.LeftBanner; c != nil {
 		g.ctx.BufferData(gl.ARRAY_BUFFER, leftBannerData, gl.STATIC_DRAW)
 		g.ctx.Uniform4f(g.color, c.R, c.G, c.B, 1)
 		g.ctx.Uniform2f(g.offset, 0, 0)
 		g.ctx.DrawArrays(gl.TRIANGLE_FAN, 0, 4)
 	}
-
 	g.ctx.DisableVertexAttribArray(g.position)
 }
 
@@ -126,11 +122,11 @@ var (
 		0, triangleHeight/2, 0, // top
 		triangleSide/2, -triangleHeight/2, 0, // bottom right
 	)
-	rightBannerData = f32.Bytes(binary.LittleEndian,
-		1-bannerWidth, 1, 0,
+	topBannerData = f32.Bytes(binary.LittleEndian,
+		-1, 1, 0,
 		1, 1, 0,
-		1, -1, 0,
-		1-bannerWidth, -1, 0,
+		1, 1-bannerWidth, 0,
+		-1, 1-bannerWidth, 0,
 	)
 	leftBannerData = f32.Bytes(binary.LittleEndian,
 		-1, 1, 0,
