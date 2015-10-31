@@ -34,6 +34,10 @@ type NetworkChannels struct {
 	// Clients read NewRightScreen to get a channel on which they can send
 	// triangles to the screen on the right.
 	NewRightScreen <-chan (chan<- *spec.Triangle)
+	// Invitations is where clients can read invitations received to join
+	// another screen on their right (our left). The response to the invitation
+	// is sent by writing to Invitation.Response.
+	Invitations <-chan Invitation
 }
 
 func SetupNetwork(chMyScreen chan<- *spec.Triangle) NetworkChannels {
@@ -41,26 +45,28 @@ func SetupNetwork(chMyScreen chan<- *spec.Triangle) NetworkChannels {
 		ready          = make(chan interface{})
 		newLeftScreen  = make(chan chan<- *spec.Triangle)
 		newRightScreen = make(chan chan<- *spec.Triangle)
+		invites        = make(chan Invitation)
 		nm             = &networkManager{
-			myScreen: chMyScreen,
-			invites:  make(chan invitation),
+			myScreen:   chMyScreen,
+			inviteRPCs: make(chan Invitation),
 		}
 		ret = NetworkChannels{
+			Ready:          ready,
 			NewLeftScreen:  newLeftScreen,
 			NewRightScreen: newRightScreen,
-			Ready:          ready,
+			Invitations:    invites,
 		}
 	)
-	go nm.run(ready, newLeftScreen, newRightScreen)
+	go nm.run(ready, newLeftScreen, newRightScreen, invites)
 	return ret
 }
 
 type networkManager struct {
-	myScreen chan<- *spec.Triangle
-	invites  chan invitation
+	myScreen   chan<- *spec.Triangle
+	inviteRPCs chan Invitation
 }
 
-func (nm *networkManager) run(ready chan<- interface{}, newLeftScreen, newRightScreen chan<- chan<- *spec.Triangle) {
+func (nm *networkManager) run(ready chan<- interface{}, newLeftScreen, newRightScreen chan<- chan<- *spec.Triangle, newInvite chan<- Invitation) {
 	defer close(nm.myScreen)
 	defer close(newLeftScreen)
 	defer close(newRightScreen)
@@ -91,20 +97,37 @@ func (nm *networkManager) run(ready chan<- interface{}, newLeftScreen, newRightS
 		right    = remoteScreen{myScreen: nm.myScreen, notify: newRightScreen}
 		accepted = make(chan string) // Names of remote screens that accepted an invitation
 		seek     = make(chan bool)   // Send false to stop seeking invitations from others, true otherwise
+
+		pendingInviterName        string
+		pendingInviteUserResponse <-chan error
+		pendingInviteRPCResponse  chan<- error
 	)
 	go seekInvites(ctx, server, myUuid, seek)
 	go sendInvites(ctx, myUuid, accepted)
 	for {
 		select {
-		case invitation := <-nm.invites:
+		case invitation := <-nm.inviteRPCs:
 			if left.Active() {
 				invitation.Response <- fmt.Errorf("thanks for the invite but I'm already engaged with a previous invitation")
 				break
 			}
-			invitation.Response <- nil
-			ctx.Infof("Activating left screen %q", invitation.Name)
-			left.Activate(ctx, invitation.Name)
-			seek <- false
+			// Defer the response to the user interface.
+			ch := make(chan error)
+			pendingInviterName = invitation.Name
+			pendingInviteRPCResponse = invitation.Response
+			pendingInviteUserResponse = ch
+			invitation.Response = ch
+			newInvite <- invitation
+		case err := <-pendingInviteUserResponse:
+			pendingInviteRPCResponse <- err
+			if err == nil {
+				ctx.Infof("Activating left screen %q", pendingInviterName)
+				left.Activate(ctx, pendingInviterName)
+				seek <- false
+			}
+			pendingInviterName = ""
+			pendingInviteUserResponse = nil
+			pendingInviteRPCResponse = nil
 		case <-left.Lost():
 			ctx.Infof("Deactivating left screen")
 			left.Deactivate()
@@ -143,15 +166,22 @@ func (s *remoteScreen) Deactivate() {
 	s.notify <- nil
 }
 
-type invitation struct {
-	Name     string
-	Response chan<- error
+type Invitation struct {
+	Name      string
+	Color     Color
+	Response  chan<- error
+	Withdrawn <-chan struct{} // Close if the invitation has been withdrawn
 }
 
 func (nm *networkManager) Invite(ctx *context.T, call rpc.ServerCall) error {
 	inviter := call.RemoteEndpoint().Name()
 	response := make(chan error)
-	nm.invites <- invitation{Name: inviter, Response: response}
+	nm.inviteRPCs <- Invitation{
+		Name:      inviter,
+		Color:     selectColor(call.Security().RemoteBlessings().PublicKey()),
+		Response:  response,
+		Withdrawn: ctx.Done(),
+	}
 	if err := <-response; err != nil {
 		return err
 	}
@@ -214,6 +244,8 @@ func sendInvites(ctx *context.T, myUuid []byte, notify chan<- string) {
 func sendOneInvite(ctx *context.T, addrs []string) string {
 	// Give at most 1 second for these connections to be made, if they
 	// can't be made then consider the peer bad and ignore it.
+	// TODO: Should these RPCs also use the "connection timeout" that might be implemented
+	// as per proposal: https://docs.google.com/a/google.com/document/d/1prtxGhSR5TaL0lc_iDRC0Q6H1Drbg2T0x7MWVb_ZCSM/edit?usp=sharing
 	ctx, cancel := context.WithTimeout(ctx, maxInvitationWaitTime)
 	defer cancel()
 	ch := make(chan string)
@@ -331,6 +363,6 @@ func selectColor(key security.PublicKey) Color {
 }
 
 const (
-	maxInvitationWaitTime = time.Second
+	maxInvitationWaitTime = 30 * time.Second
 	maxTriangleGiveTime   = 100 * time.Millisecond // A low value is fine here, thanks to bidirectional RPCing, there is no connection setup
 )

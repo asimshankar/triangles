@@ -35,7 +35,18 @@ func main() {
 				scene.Triangles = append(scene.Triangles, &spec.Triangle{R: c.R, G: c.G, B: c.B})
 			}
 
-			ticker = time.Tick(time.Second)
+			invitationActive       bool
+			invitation             Invitation
+			invitationTicker       *time.Ticker
+			invitationBannerTicker <-chan time.Time
+
+			clearInvitation = func() {
+				invitationActive = false
+				invitation = Invitation{}
+				invitationTicker.Stop()
+				invitationBannerTicker = nil
+				scene.LeftBanner = nil
+			}
 		)
 		for {
 			select {
@@ -50,6 +61,22 @@ func main() {
 					log.Panicf("Unexpected type from the Ready channel: %T (%v)", ready, ready)
 				}
 				networkChannels.Ready = nil // To stop this select clause from being hit again.
+			case inv := <-networkChannels.Invitations:
+				invitationActive = true
+				invitation = inv
+				invitationTicker = time.NewTicker(time.Second)
+				invitationBannerTicker = invitationTicker.C
+				log.Printf("Notifying user of invitation from %v", inv.Name)
+			case <-invitationBannerTicker:
+				// Flash the banner
+				if scene.LeftBanner == nil {
+					scene.LeftBanner = &invitation.Color
+					break
+				}
+				scene.LeftBanner = nil
+			case <-invitation.Withdrawn:
+				log.Printf("Invitation from %v withdrawn", invitation.Name)
+				clearInvitation()
 			case ch := <-networkChannels.NewLeftScreen:
 				leftScreen.close()
 				leftScreen = newOtherScreen(ch, chMyScreen)
@@ -58,12 +85,6 @@ func main() {
 				rightScreen = newOtherScreen(ch, chMyScreen)
 			case t := <-chMyScreen:
 				scene.Triangles = append(scene.Triangles, t)
-			case <-ticker:
-				if scene.LeftBanner == nil {
-					scene.LeftBanner = &scene.TopBanner
-				} else {
-					scene.LeftBanner = nil
-				}
 			case e := <-a.Events():
 				switch e := a.Filter(e).(type) {
 				case lifecycle.Event:
@@ -116,12 +137,17 @@ func main() {
 				case touch.Event:
 					switch e.Type {
 					case touch.TypeBegin:
-						touches[e.Sequence] = &touchEvents{Start: e}
+						touches[e.Sequence] = &touchEvents{Start: e, StartTime: time.Now()}
 					case touch.TypeMove:
 						touches[e.Sequence].Count++
 					case touch.TypeEnd:
 						tch := touches[e.Sequence]
 						delete(touches, e.Sequence)
+						if invitationActive && time.Since(tch.StartTime) > acceptInvitationDuration {
+							log.Printf("Accepting invitation from %q", invitation.Name)
+							invitation.Response <- nil // Accept it
+							clearInvitation()
+						}
 						if c := tch.Count; c > maxTouchCount {
 							log.Printf("Ignoring long touch (%d > %d)", c, maxTouchCount)
 							break
@@ -151,8 +177,9 @@ func main() {
 }
 
 type touchEvents struct {
-	Start touch.Event // Starting event
-	Count int         // Number of moves before the end event
+	Start     touch.Event // Starting event
+	Count     int         // Number of moves before the end event
+	StartTime time.Time
 }
 
 type otherScreen struct {
@@ -218,7 +245,8 @@ func returnTriangle(t *spec.Triangle, myScreen chan<- *spec.Triangle) {
 }
 
 const (
-	maxTouchCount     = 30
-	gravity           = 0.1
-	timeBetweenPaints = 0.1
+	maxTouchCount            = 30
+	acceptInvitationDuration = time.Second
+	gravity                  = 0.1
+	timeBetweenPaints        = 0.1
 )
