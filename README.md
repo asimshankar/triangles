@@ -25,10 +25,10 @@ $GOPATH/bin/triangles  --logtostderr
 Requires the Android SDK to be installed. Easiest way is to install [Android
 Studio](https://developer.android.com/sdk/index.html). After that:
 ```
-# Connect the Android device via USB
 go get golang.org/x/mobile/cmd/gomobile
 gomobile init
 go get github.com/asimshankar/triangles
+# Connect the Android device via USB
 gomobile install github.com/asimshankar/triangles
 # And see the application's logs.
 adb logcat | grep GoLog
