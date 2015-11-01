@@ -5,6 +5,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/asimshankar/triangles/spec"
 	"golang.org/x/mobile/app"
 	"golang.org/x/mobile/event/lifecycle"
@@ -30,9 +31,10 @@ func main() {
 			rightScreen     = newOtherScreen(nil, chMyScreen)
 			networkChannels = SetupNetwork(chMyScreen)
 
-			spawnTriangle = func() {
+			spawnTriangle = func(x float32) {
 				c := scene.TopBanner
-				scene.Triangles = append(scene.Triangles, &spec.Triangle{R: c.R, G: c.G, B: c.B})
+				scene.Triangles = append(scene.Triangles, &spec.Triangle{
+					X: x, Y: 1, R: c.R, G: c.G, B: c.B})
 			}
 
 			invitationActive       bool
@@ -56,7 +58,7 @@ func main() {
 					log.Panic(v)
 				case Color:
 					scene.TopBanner = v
-					spawnTriangle()
+					spawnTriangle(0)
 				default:
 					log.Panicf("Unexpected type from the Ready channel: %T (%v)", ready, ready)
 				}
@@ -137,16 +139,30 @@ func main() {
 				case touch.Event:
 					switch e.Type {
 					case touch.TypeBegin:
-						touches[e.Sequence] = &touchEvents{Start: e, StartTime: time.Now()}
+						touches[e.Sequence] = &touchEvents{Start: e}
 					case touch.TypeMove:
 						touches[e.Sequence].Count++
 					case touch.TypeEnd:
 						tch := touches[e.Sequence]
 						delete(touches, e.Sequence)
-						if invitationActive && time.Since(tch.StartTime) > acceptInvitationDuration {
-							log.Printf("Accepting invitation from %q", invitation.Name)
-							invitation.Response <- nil // Accept it
+						x, y := touch2coords(tch.Start, sz)
+						if invitationActive && x < bannerWidth {
+							// Touched in the left invitation banner:
+							// Swipe = reject, Tap = accept.
+							if x, y := (e.X - tch.Start.X), (e.Y - tch.Start.Y); x*x+y*y > 0 {
+								log.Printf("Swiped (%d, %d) pixels, rejecting invitation from %q", x, y, invitation.Name)
+								invitation.Response <- fmt.Errorf("user rejected")
+							} else {
+								log.Printf("Accepting invitation from %q", invitation.Name)
+								invitation.Response <- nil
+							}
 							clearInvitation()
+							break
+						}
+						if y < bannerWidth {
+							// Touched top banner, spawn a new triangle
+							spawnTriangle(x)
+							break
 						}
 						if c := tch.Count; c > maxTouchCount {
 							log.Printf("Ignoring long touch (%d > %d)", c, maxTouchCount)
@@ -155,7 +171,6 @@ func main() {
 						// Find the closest triangle to the touch start and adjust its velocity.
 						var (
 							// Normalize the touch coordinates to the triangle coordinates ([-1,1])
-							x, y          = touch2coords(tch.Start, sz)
 							closestT      *spec.Triangle
 							minDistanceSq float32
 						)
@@ -177,9 +192,8 @@ func main() {
 }
 
 type touchEvents struct {
-	Start     touch.Event // Starting event
-	Count     int         // Number of moves before the end event
-	StartTime time.Time
+	Start touch.Event // Starting event
+	Count int         // Number of moves before the end event
 }
 
 type otherScreen struct {
