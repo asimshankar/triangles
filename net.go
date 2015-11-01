@@ -364,5 +364,5 @@ func selectColor(key security.PublicKey) Color {
 
 const (
 	maxInvitationWaitTime = 30 * time.Second
-	maxTriangleGiveTime   = 100 * time.Millisecond // A low value is fine here, thanks to bidirectional RPCing, there is no connection setup
+	maxTriangleGiveTime   = time.Second / 2
 )
