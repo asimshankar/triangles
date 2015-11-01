@@ -2,9 +2,9 @@
 * [![Build Status](https://travis-ci.org/asimshankar/triangles.svg)](https://travis-ci.org/asimshankar/triangles)
 * [Go](https://golang.org)+[v23](https://github.com/vanadium/go.v23)+[Mobile](https://github.com/golang/mobile)
 * Heavily inspired by [volley](https://github.com/monopole/volley), though this
-  utilizes the [v23](https://github.com/vanadium/go.v23) network discovery APIs
-  to simplify the setup
-* For more information on v23, sign up [here](https://goo.gl/ETo8Mt)
+  utilizes the [v23](https://github.com/vanadium/go.v23) [network discovery
+  API](https://godoc.org/v.io/v23/discovery) to simplify setup
+* For more information on v23, sign up [here](https://v.io)
 
 # Quick Start
 
@@ -22,7 +22,7 @@ $GOPATH/bin/triangles  --logtostderr
 ```
 
 # Android
-Requires the Android SDK to be installed. Easiest way is toq install [Android
+Requires the Android SDK to be installed. Easiest way is to install [Android
 Studio](https://developer.android.com/sdk/index.html). After that:
 ```
 # Connect the Android device via USB
