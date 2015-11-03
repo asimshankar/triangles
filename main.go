@@ -186,8 +186,9 @@ func main() {
 						if invitationActive && x < bannerWidth {
 							// Touched in the left invitation banner:
 							// Swipe = reject, Tap = accept.
-							if x, y := (e.X - tch.Start.X), (e.Y - tch.Start.Y); x*x+y*y > 0 {
-								log.Printf("Swiped (%d, %d) pixels, rejecting invitation from %q", x, y, invitation.Name)
+							var swipeThreshold = float32(sz.WidthPx) / 2
+							if dx, dy := (e.X - tch.Start.X), (e.Y - tch.Start.Y); dx*dx+dy*dy > swipeThreshold*swipeThreshold {
+								log.Printf("Swiped (%v, %v) pixels, rejecting invitation from %q", dx, dy, invitation.Name)
 								invitation.Response <- fmt.Errorf("user rejected")
 							} else {
 								log.Printf("Accepting invitation from %q", invitation.Name)
