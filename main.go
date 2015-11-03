@@ -113,6 +113,16 @@ func main() {
 						continue
 					}
 					var mine, left, right []*spec.Triangle
+					// Handle any collisions between triangles.
+					for i, t1 := range scene.Triangles {
+						for j := i + 1; j < len(scene.Triangles); j++ {
+							t2 := scene.Triangles[j]
+							if dx, dy := (t1.X - t2.X), (t1.Y - t2.Y); dx*dx+dy*dy < triangleSide*triangleSide {
+								t1.Dx, t2.Dx = t2.Dx, t1.Dx
+								t1.Dy, t2.Dy = t2.Dy, t1.Dy
+							}
+						}
+					}
 					for _, t := range scene.Triangles {
 						if _, touched := touchedTriangles[t]; !touched {
 							// Only move a triangle if it is not currently being manipulated by the user.
