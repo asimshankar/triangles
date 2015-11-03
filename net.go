@@ -16,8 +16,9 @@ import (
 	"v.io/v23/rpc"
 	"v.io/v23/security"
 	"v.io/x/ref"
+	discutil "v.io/x/ref/lib/discovery/util"
 
-	_ "v.io/x/ref/runtime/factories/generic"
+	_ "v.io/x/ref/runtime/factories/roaming"
 )
 
 var interfaceName = spec.ScreenDesc.PkgPath
@@ -293,16 +294,11 @@ func seekInvites(ctx *context.T, server rpc.Server, uuid []byte, updates <-chan 
 		chStopped <-chan struct{}
 		start     = func() {
 			// Set the service, update cancelCtx, cancel and chStopped
-			endpoints := server.Status().Endpoints
-			service.Addrs = make([]string, len(endpoints))
-			for idx, ep := range endpoints {
-				service.Addrs[idx] = ep.Name()
-			}
 			var err error
 			var advCtx *context.T
 			advCtx, cancel = context.WithCancel(ctx)
-			chStopped, err = v23.GetDiscovery(ctx).Advertise(advCtx, service, nil)
-			if err != nil {
+			if chStopped, err = discutil.AdvertiseServer(advCtx, server, "", service, nil); err != nil {
+				cancel()
 				ctx.Infof("Failed to advertise %#v: %v", service, err)
 				return
 			}

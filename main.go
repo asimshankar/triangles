@@ -20,12 +20,13 @@ import (
 func main() {
 	app.Main(func(a app.App) {
 		var (
-			myGL             *GL
-			sz               size.Event
+			scene Scene
+			myGL  *GL
+			debug *GLDebug
+			sz    size.Event
+
 			touches          = make(map[touch.Sequence]*touchEvents) // Active touch events
 			touchedTriangles = make(map[*spec.Triangle]struct{})     // Triangles currently being touched
-			scene            = Scene{}
-			debug            *GLDebug
 
 			chMyScreen      = make(chan *spec.Triangle) // New triangles to draw on my screen
 			leftScreen      = newOtherScreen(nil, chMyScreen)
@@ -42,8 +43,7 @@ func main() {
 			invitation             Invitation
 			invitationTicker       *time.Ticker
 			invitationBannerTicker <-chan time.Time
-
-			clearInvitation = func() {
+			clearInvitation        = func() {
 				invitationActive = false
 				invitation = Invitation{}
 				invitationTicker.Stop()
@@ -197,7 +197,7 @@ func main() {
 							clearInvitation()
 							break
 						}
-						if y >= 1-bannerWidth {
+						if y >= 1-(2*bannerWidth) {
 							// Touched top banner, spawn a new triangle
 							log.Printf("Top banner touched, spawning new triangle (Y=%v, threshold=%v)", y, -1+bannerWidth)
 							spawnTriangle(x)
