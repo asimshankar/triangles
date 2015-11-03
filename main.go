@@ -249,9 +249,9 @@ func moveTriangle(t *spec.Triangle) {
 	if t.Y <= -1 {
 		t.Dy = -1 * t.Dy
 		t.Y = -1
-	} else if t.Y >= 1 {
+	} else if maxY := 1 - triangleCenterHeight; t.Y >= maxY {
 		t.Dy = -1 * t.Dy
-		t.Y = 1
+		t.Y = maxY
 	}
 }
 

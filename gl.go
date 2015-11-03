@@ -116,8 +116,9 @@ void main() {
 )
 
 var (
-	triangleHeight = float32(math.Sqrt(3)) * triangleSide / 2
-	triangleData   = f32.Bytes(binary.LittleEndian,
+	triangleHeight       = float32(math.Sqrt(3)) * triangleSide / 2
+	triangleCenterHeight = triangleSide / (2 * float32(math.Sqrt(3)))
+	triangleData         = f32.Bytes(binary.LittleEndian,
 		-triangleSide/2, -triangleHeight/2, 0, // bottom left
 		0, triangleHeight/2, 0, // top
 		triangleSide/2, -triangleHeight/2, 0, // bottom right
