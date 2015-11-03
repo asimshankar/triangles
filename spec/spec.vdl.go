@@ -17,9 +17,8 @@ import (
 
 // Triangle represents a triangle that will be displayed on the screen.
 //
-// The coordinates (X, Y) and velocity (Dx, Dy) are in a world where
-// (0, 0) is the center, (1, 1) is the top right and (-1, -1) is the bottom
-// left.
+// The coordinates (X, Y) and velocity (Dx, Dy) are in a world where (0, 0) is
+// the center, (1, 1) is the bottom right and (-1, -1) is the top left.
 //
 // R, G, B denote the color of the triangle.
 type Triangle struct {

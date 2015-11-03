@@ -159,8 +159,9 @@ func main() {
 							clearInvitation()
 							break
 						}
-						if y < bannerWidth {
+						if y <= -1+bannerWidth {
 							// Touched top banner, spawn a new triangle
+							log.Printf("Top banner touched, spawning new triangle (Y=%v, threshold=%v)", y, -1+bannerWidth)
 							spawnTriangle(x)
 							break
 						}
@@ -242,8 +243,9 @@ func touch2coords(t touch.Event, sz size.Event) (x, y float32) {
 }
 
 func moveTriangle(t *spec.Triangle) {
+	t.Dy = t.Dy - gravity
 	t.X = t.X + t.Dx*timeBetweenPaints
-	t.Y = t.Y + (t.Dy-gravity)*timeBetweenPaints
+	t.Y = t.Y + t.Dy*timeBetweenPaints
 	if t.Y <= -1 {
 		t.Dy = -1 * t.Dy
 		t.Y = -1
@@ -262,6 +264,6 @@ func returnTriangle(t *spec.Triangle, myScreen chan<- *spec.Triangle) {
 const (
 	maxTouchCount            = 30
 	acceptInvitationDuration = time.Second
-	gravity                  = 0.1
+	gravity                  = 0.01
 	timeBetweenPaints        = 0.1
 )
