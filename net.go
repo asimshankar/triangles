@@ -213,7 +213,7 @@ func sendInvites(ctx *context.T, myUuid []byte, notify chan<- string) {
 	ctx.Infof("Scanning for peers to invite")
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	updates, err := v23.GetDiscovery(ctx).Scan(ctx, interfaceName)
+	updates, err := v23.GetDiscovery(ctx).Scan(ctx, fmt.Sprintf("v.InterfaceName=%q", interfaceName))
 	if err != nil {
 		ctx.Panic(err)
 	}
