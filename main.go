@@ -20,11 +20,12 @@ import (
 func main() {
 	app.Main(func(a app.App) {
 		var (
-			myGL    *GL
-			sz      size.Event
-			touches = make(map[touch.Sequence]*touchEvents) // Active touch events
-			scene   = Scene{}
-			debug   *GLDebug
+			myGL             *GL
+			sz               size.Event
+			touches          = make(map[touch.Sequence]*touchEvents) // Active touch events
+			touchedTriangles = make(map[*spec.Triangle]struct{})     // Triangles currently being touched
+			scene            = Scene{}
+			debug            *GLDebug
 
 			chMyScreen      = make(chan *spec.Triangle) // New triangles to draw on my screen
 			leftScreen      = newOtherScreen(nil, chMyScreen)
@@ -113,11 +114,14 @@ func main() {
 					}
 					var mine, left, right []*spec.Triangle
 					for _, t := range scene.Triangles {
-						moveTriangle(t)
+						if _, touched := touchedTriangles[t]; !touched {
+							// Only move a triangle if it is not currently being manipulated by the user.
+							moveTriangle(t)
+						}
 						switch {
-						case t.X <= -1:
+						case t.X < -1:
 							left = append(left, t)
-						case t.X >= 1:
+						case t.X > 1:
 							right = append(right, t)
 						default:
 							mine = append(mine, t)
@@ -139,13 +143,36 @@ func main() {
 				case touch.Event:
 					switch e.Type {
 					case touch.TypeBegin:
-						touches[e.Sequence] = &touchEvents{Start: e}
+						var (
+							touchedT *spec.Triangle
+							x, y     = touch2coords(e, sz)
+						)
+						for _, t := range scene.Triangles {
+							if dx, dy := (x - t.X), (y - t.Y); dx*dx+dy*dy < triangleSide*triangleSide {
+								log.Printf("Triangle %+v touched by user", t)
+								touchedT = t
+								touchedTriangles[t] = struct{}{}
+								break
+							}
+						}
+						touches[e.Sequence] = &touchEvents{Start: e, Triangle: touchedT}
 					case touch.TypeMove:
-						touches[e.Sequence].Count++
+						tch := touches[e.Sequence]
+						if tch.Triangle != nil {
+							tch.Triangle.X, tch.Triangle.Y = touch2coords(e, sz)
+						}
 					case touch.TypeEnd:
 						tch := touches[e.Sequence]
 						delete(touches, e.Sequence)
 						x, y := touch2coords(tch.Start, sz)
+						if t := tch.Triangle; t != nil {
+							// Set triangle velocity based on movement from the original position.
+							t.X, t.Y = touch2coords(e, sz)
+							t.Dx = (e.X - tch.Start.X) / float32(sz.WidthPx)
+							t.Dy = (e.Y - tch.Start.Y) / float32(sz.HeightPx)
+							delete(touchedTriangles, t)
+							break
+						}
 						if invitationActive && x < bannerWidth {
 							// Touched in the left invitation banner:
 							// Swipe = reject, Tap = accept.
@@ -159,31 +186,11 @@ func main() {
 							clearInvitation()
 							break
 						}
-						if y <= -1+bannerWidth {
+						if y >= 1-bannerWidth {
 							// Touched top banner, spawn a new triangle
 							log.Printf("Top banner touched, spawning new triangle (Y=%v, threshold=%v)", y, -1+bannerWidth)
 							spawnTriangle(x)
 							break
-						}
-						if c := tch.Count; c > maxTouchCount {
-							log.Printf("Ignoring long touch (%d > %d)", c, maxTouchCount)
-							break
-						}
-						// Find the closest triangle to the touch start and adjust its velocity.
-						var (
-							// Normalize the touch coordinates to the triangle coordinates ([-1,1])
-							closestT      *spec.Triangle
-							minDistanceSq float32
-						)
-						for idx, t := range scene.Triangles {
-							if d := (x-t.X)*(x-t.X) + (y-t.Y)*(y-t.Y); d < minDistanceSq || idx == 0 {
-								minDistanceSq = d
-								closestT = t
-							}
-						}
-						if closestT != nil {
-							closestT.Dx += (e.X - tch.Start.X) / float32(sz.WidthPx)
-							closestT.Dy += (e.Y - tch.Start.Y) / float32(sz.HeightPx)
 						}
 					}
 				}
@@ -193,8 +200,8 @@ func main() {
 }
 
 type touchEvents struct {
-	Start touch.Event // Starting event
-	Count int         // Number of moves before the end event
+	Start    touch.Event    // Where the touch event began
+	Triangle *spec.Triangle // The triangle being manipulated by touch, if any
 }
 
 type otherScreen struct {
@@ -238,8 +245,13 @@ func (s *otherScreen) send(triangles []*spec.Triangle) {
 
 // touch2coords transforms coordinates from the touch.Event coordinate system
 // to the GL and Triangles coordinate system.
+//
+// Pixel coordinates <--> GL coordinates;
+//            (0, 0) <--> (-1, 1)  // bottom left
+//        (W/2, H/2) <--> (0, 0)
+//            (W, H) <--> (1, -1)  // top right
 func touch2coords(t touch.Event, sz size.Event) (x, y float32) {
-	return 2*t.X/float32(sz.WidthPx) - 1, 2*t.Y/float32(sz.HeightPx) - 1
+	return 2*t.X/float32(sz.WidthPx) - 1, 1 - 2*t.Y/float32(sz.HeightPx)
 }
 
 func moveTriangle(t *spec.Triangle) {
@@ -262,8 +274,7 @@ func returnTriangle(t *spec.Triangle, myScreen chan<- *spec.Triangle) {
 }
 
 const (
-	maxTouchCount            = 30
 	acceptInvitationDuration = time.Second
-	gravity                  = 0.01
+	gravity                  = 0.001
 	timeBetweenPaints        = 0.1
 )
