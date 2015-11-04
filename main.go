@@ -106,6 +106,7 @@ func main() {
 						}
 						myGL.Release()
 						debug.Release()
+						debug = nil
 						myGL = nil
 					}
 				case paint.Event:
