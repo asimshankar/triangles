@@ -83,7 +83,6 @@ func (nm *networkManager) run(ready chan<- interface{}, newLeftScreen, newRightS
 		notifyReady(err)
 		return
 	}
-	preV23Init()
 	ctx, shutdown := v23.Init()
 	defer shutdown()
 	ctx, server, err := v23.WithNewServer(ctx, "", spec.ScreenServer(nm), security.AllowEveryone())
