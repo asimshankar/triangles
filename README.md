@@ -31,7 +31,7 @@ go get github.com/asimshankar/triangles
 # Connect the Android device via USB
 gomobile install github.com/asimshankar/triangles
 # And see the application's logs.
-adb logcat | grep GoLog
+adb logcat *:S GoLog:*
 ```
 
 # iOS
