@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"crypto/md5"
-	"crypto/rand"
 	"fmt"
 	"github.com/asimshankar/triangles/spec"
 	"os"
@@ -16,7 +14,7 @@ import (
 	"v.io/v23/rpc"
 	"v.io/v23/security"
 	"v.io/x/ref"
-	discutil "v.io/x/ref/lib/discovery/util"
+	discutil "v.io/x/ref/lib/discovery"
 
 	_ "v.io/x/ref/runtime/factories/roaming"
 )
@@ -78,11 +76,6 @@ func (nm *networkManager) run(ready chan<- interface{}, newLeftScreen, newRightS
 	}
 	// TODO: Remove this: It seems that v23 will ultimately transition to this being the default.
 	os.Setenv(ref.RPCTransitionStateVar, "xservers")
-	myUuid := make([]byte, 16)
-	if _, err := rand.Read(myUuid); err != nil {
-		notifyReady(err)
-		return
-	}
 	ctx, shutdown := v23.Init()
 	defer shutdown()
 	ctx, server, err := v23.WithNewServer(ctx, "", spec.ScreenServer(nm), security.AllowEveryone())
@@ -101,9 +94,9 @@ func (nm *networkManager) run(ready chan<- interface{}, newLeftScreen, newRightS
 		pendingInviterName        string
 		pendingInviteUserResponse <-chan error
 		pendingInviteRPCResponse  chan<- error
+		myInstanceId              = seekInvites(ctx, server, seek)
 	)
-	go seekInvites(ctx, server, myUuid, seek)
-	go sendInvites(ctx, myUuid, accepted)
+	go sendInvites(ctx, myInstanceId, accepted)
 	for {
 		select {
 		case invitation := <-nm.inviteRPCs:
@@ -138,7 +131,7 @@ func (nm *networkManager) run(ready chan<- interface{}, newLeftScreen, newRightS
 		case <-right.Lost():
 			ctx.Infof("Deactivating right screen")
 			right.Deactivate()
-			go sendInvites(ctx, myUuid, accepted)
+			go sendInvites(ctx, myInstanceId, accepted)
 		case <-ctx.Done():
 			return
 		}
@@ -209,7 +202,7 @@ func (nm *networkManager) Give(ctx *context.T, call rpc.ServerCall, t spec.Trian
 	return nil
 }
 
-func sendInvites(ctx *context.T, myUuid []byte, notify chan<- string) {
+func sendInvites(ctx *context.T, myInstanceId string, notify chan<- string) {
 	ctx.Infof("Scanning for peers to invite")
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -219,7 +212,7 @@ func sendInvites(ctx *context.T, myUuid []byte, notify chan<- string) {
 	}
 	for u := range updates {
 		found, ok := u.Interface().(discovery.Found)
-		if !ok || bytes.Equal(found.Service.InstanceUuid, myUuid) {
+		if !ok || found.Service.InstanceId == myInstanceId {
 			continue
 		}
 		ctx.Infof("Sending invitations to %+v", found.Service)
@@ -275,14 +268,11 @@ func sendOneInvite(ctx *context.T, addrs []string) string {
 	return ""
 }
 
-func seekInvites(ctx *context.T, server rpc.Server, uuid []byte, updates <-chan bool) {
+func seekInvites(ctx *context.T, server rpc.Server, updates <-chan bool) string {
 	var (
 		// TODO: Thoughts on the discovery API
-		// - Service should be mutable so that if the InstanceUuid is filled in
-		//   then the client gets to know it
-		// - Even InterfaceName should be somehow filled in automatically?
+		// - InterfaceName should be somehow filled in automatically?
 		service = discovery.Service{
-			InstanceUuid:  uuid,
 			InstanceName:  "triangles",
 			InterfaceName: interfaceName,
 			Attrs: discovery.Attributes{
@@ -296,7 +286,7 @@ func seekInvites(ctx *context.T, server rpc.Server, uuid []byte, updates <-chan 
 			var err error
 			var advCtx *context.T
 			advCtx, cancel = context.WithCancel(ctx)
-			if chStopped, err = discutil.AdvertiseServer(advCtx, server, "", service, nil); err != nil {
+			if chStopped, err = discutil.AdvertiseServer(advCtx, server, "", &service, nil); err != nil {
 				cancel()
 				ctx.Infof("Failed to advertise %#v: %v", service, err)
 				return
@@ -314,13 +304,17 @@ func seekInvites(ctx *context.T, server rpc.Server, uuid []byte, updates <-chan 
 		}
 	)
 	start()
-	for shouldStart := range updates {
-		if shouldStart {
-			start()
-			continue
+	ret := service.InstanceId // Filled in Start
+	go func() {
+		for shouldStart := range updates {
+			if shouldStart {
+				start()
+				continue
+			}
+			stop()
 		}
-		stop()
-	}
+	}()
+	return ret
 }
 
 func channel2rpc(ctx *context.T, src <-chan *spec.Triangle, dst string, errch chan<- error, myScreen chan<- *spec.Triangle) {
