@@ -38,7 +38,7 @@ adb logcat *:S GoLog:*
 * Become an [Apple app developer](https://developer.apple.com/programs) (get an apple ID, device auth, etc.)
 * Install [XCode](https://developer.apple.com/xcode/download/), perhaps: `xcode-select --install`
 * Get [git](http://git-scm.com/download/mac)
-* Build the mobile app
+* Build the mobile app: More details on the [GoMobile Wiki](https://github.com/golang/go/wiki/Mobile)
 ```
 go get golang.org/x/mobile/cmd/gomobile
 gomobile init
