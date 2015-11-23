@@ -59,7 +59,7 @@ type ScreenClientMethods interface {
 	// when a triangle falls off that adjacent screen. However, this is not
 	// a requirement and Give can be invoked by an arbitrary client to
 	// manufacture a new triangle.
-	Give(ctx *context.T, t Triangle, opts ...rpc.CallOpt) error
+	Give(_ *context.T, t Triangle, _ ...rpc.CallOpt) error
 }
 
 // ScreenClientStub adds universal methods to ScreenClientMethods.
@@ -106,7 +106,7 @@ type ScreenServerMethods interface {
 	// when a triangle falls off that adjacent screen. However, this is not
 	// a requirement and Give can be invoked by an arbitrary client to
 	// manufacture a new triangle.
-	Give(ctx *context.T, call rpc.ServerCall, t Triangle) error
+	Give(_ *context.T, _ rpc.ServerCall, t Triangle) error
 }
 
 // ScreenServerStubMethods is the server interface containing
