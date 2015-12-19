@@ -4,7 +4,6 @@ import (
 	"crypto/md5"
 	"fmt"
 	"github.com/asimshankar/triangles/spec"
-	"os"
 	"runtime"
 	"time"
 	"v.io/v23"
@@ -13,7 +12,6 @@ import (
 	"v.io/v23/options"
 	"v.io/v23/rpc"
 	"v.io/v23/security"
-	"v.io/x/ref"
 	discutil "v.io/x/ref/lib/discovery"
 
 	_ "v.io/x/ref/runtime/factories/roaming"
@@ -74,8 +72,6 @@ func (nm *networkManager) run(ready chan<- interface{}, newLeftScreen, newRightS
 		close(ready)
 		ready = nil
 	}
-	// TODO: Remove this: It seems that v23 will ultimately transition to this being the default.
-	os.Setenv(ref.RPCTransitionStateVar, "xservers")
 	ctx, shutdown := v23.Init()
 	defer shutdown()
 	ctx, server, err := v23.WithNewServer(ctx, "", spec.ScreenServer(nm), security.AllowEveryone())
