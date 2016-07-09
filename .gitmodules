@@ -1,0 +1,30 @@
+[submodule "vendor/github.com/cosnicolaou/llog"]
+	path = vendor/github.com/cosnicolaou/llog
+	url = https://github.com/cosnicolaou/llog
+[submodule "vendor/github.com/gorilla/websocket"]
+	path = vendor/github.com/gorilla/websocket
+	url = https://github.com/gorilla/websocket
+[submodule "vendor/github.com/pborman/uuid"]
+	path = vendor/github.com/pborman/uuid
+	url = https://github.com/pborman/uuid
+[submodule "vendor/github.com/presotto/go-mdns-sd"]
+	path = vendor/github.com/presotto/go-mdns-sd
+	url = https://github.com/presotto/go-mdns-sd
+[submodule "vendor/github.com/shirou/gopsutil"]
+	path = vendor/github.com/shirou/gopsutil
+	url = https://github.com/shirou/gopsutil
+[submodule "vendor/golang.org/x/crypto"]
+	path = vendor/golang.org/x/crypto
+	url = https://go.googlesource.com/crypto
+[submodule "vendor/golang.org/x/mobile"]
+	path = vendor/golang.org/x/mobile
+	url = https://go.googlesource.com/mobile
+[submodule "vendor/v.io/v23"]
+	path = vendor/v.io/v23
+	url = https://vanadium.googlesource.com/release.go.v23
+[submodule "vendor/v.io/x/lib"]
+	path = vendor/v.io/x/lib
+	url = https://vanadium.googlesource.com/release.go.x.lib
+[submodule "vendor/v.io/x/ref"]
+	path = vendor/v.io/x/ref
+	url = https://vanadium.googlesource.com/release.go.x.ref
