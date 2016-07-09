@@ -79,6 +79,11 @@ func (nm *networkManager) run(ready chan<- interface{}, newLeftScreen, newRightS
 		notifyReady(err)
 		return
 	}
+	disc, err := v23.NewDiscovery(ctx)
+	if err != nil {
+		notifyReady(err)
+		return
+	}
 	// Select a color based on some unique identifier of the process, the PublicKey serves as one.
 	notifyReady(selectColor(v23.GetPrincipal(ctx).PublicKey()))
 	var (
@@ -90,9 +95,9 @@ func (nm *networkManager) run(ready chan<- interface{}, newLeftScreen, newRightS
 		pendingInviterName        string
 		pendingInviteUserResponse <-chan error
 		pendingInviteRPCResponse  chan<- error
-		myInstanceId              = seekInvites(ctx, server, seek)
 	)
-	go sendInvites(ctx, myInstanceId, accepted)
+	seekInvites(ctx, disc, server, seek)
+	go sendInvites(ctx, disc, accepted)
 	for {
 		select {
 		case invitation := <-nm.inviteRPCs:
@@ -127,7 +132,7 @@ func (nm *networkManager) run(ready chan<- interface{}, newLeftScreen, newRightS
 		case <-right.Lost():
 			ctx.Infof("Deactivating right screen")
 			right.Deactivate()
-			go sendInvites(ctx, myInstanceId, accepted)
+			go sendInvites(ctx, disc, accepted)
 		case <-ctx.Done():
 			return
 		}
@@ -198,21 +203,20 @@ func (nm *networkManager) Give(ctx *context.T, call rpc.ServerCall, t spec.Trian
 	return nil
 }
 
-func sendInvites(ctx *context.T, myInstanceId string, notify chan<- string) {
+func sendInvites(ctx *context.T, disc discovery.T, notify chan<- string) {
 	ctx.Infof("Scanning for peers to invite")
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	updates, err := v23.GetDiscovery(ctx).Scan(ctx, fmt.Sprintf("v.InterfaceName=%q", interfaceName))
+	updates, err := disc.Scan(ctx, fmt.Sprintf("v.InterfaceName=%q", interfaceName))
 	if err != nil {
 		ctx.Panic(err)
 	}
 	for u := range updates {
-		found, ok := u.Interface().(discovery.Found)
-		if !ok || found.Service.InstanceId == myInstanceId {
+		if u.IsLost() {
 			continue
 		}
-		ctx.Infof("Sending invitations to %+v", found.Service)
-		if addr := sendOneInvite(ctx, found.Service.Addrs); len(addr) > 0 {
+		ctx.Infof("Sending invitations to %+v", u.Addresses())
+		if addr := sendOneInvite(ctx, u.Addresses()); len(addr) > 0 {
 			notify <- addr
 			go func() {
 				for range updates {
@@ -264,30 +268,27 @@ func sendOneInvite(ctx *context.T, addrs []string) string {
 	return ""
 }
 
-func seekInvites(ctx *context.T, server rpc.Server, updates <-chan bool) string {
+func seekInvites(ctx *context.T, disc discovery.T, server rpc.Server, updates <-chan bool) {
 	var (
-		// TODO: Thoughts on the discovery API
-		// - InterfaceName should be somehow filled in automatically?
-		service = discovery.Service{
-			InstanceName:  "triangles",
+		ad = &discovery.Advertisement{
 			InterfaceName: interfaceName,
-			Attrs: discovery.Attributes{
+			Attributes: discovery.Attributes{
 				"OS": runtime.GOOS,
 			},
 		}
 		cancel    func()
 		chStopped <-chan struct{}
 		start     = func() {
-			// Set the service, update cancelCtx, cancel and chStopped
+			// Start the advertisement, update cancelCtx, cancel and chStopped
 			var err error
 			var advCtx *context.T
 			advCtx, cancel = context.WithCancel(ctx)
-			if chStopped, err = discutil.AdvertiseServer(advCtx, server, "", &service, nil); err != nil {
+			if chStopped, err = discutil.AdvertiseServer(advCtx, disc, server, "", ad, nil); err != nil {
 				cancel()
-				ctx.Infof("Failed to advertise %#v: %v", service, err)
+				ctx.Infof("Failed to advertise %#v: %v", *ad, err)
 				return
 			}
-			ctx.Infof("Started advertising: %#v", service)
+			ctx.Infof("Started advertising: %#v", *ad)
 		}
 		stop = func() {
 			if chStopped == nil {
@@ -295,12 +296,11 @@ func seekInvites(ctx *context.T, server rpc.Server, updates <-chan bool) string 
 			}
 			cancel()
 			<-chStopped
-			ctx.Infof("Stopped advertising: %#v", service)
+			ctx.Infof("Stopped advertising: %#v", *ad)
 			chStopped = nil
 		}
 	)
 	start()
-	ret := service.InstanceId // Filled in Start
 	go func() {
 		for shouldStart := range updates {
 			if shouldStart {
@@ -310,7 +310,6 @@ func seekInvites(ctx *context.T, server rpc.Server, updates <-chan bool) string 
 			stop()
 		}
 	}()
-	return ret
 }
 
 func channel2rpc(ctx *context.T, src <-chan *spec.Triangle, dst string, errch chan<- error, myScreen chan<- *spec.Triangle) {
