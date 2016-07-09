@@ -10,6 +10,8 @@ before_install:
   - gomobile init
 
 script:
+  - git submodule init
+  - git submodule update
   - go build .
   - go test ./...
   - gomobile build -target=android .
