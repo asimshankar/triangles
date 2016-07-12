@@ -9,6 +9,14 @@ before_install:
   - go get golang.org/x/mobile/cmd/gomobile
   - gomobile init
 
+# The default install step for Go on Travis seems
+# to be "go get -t -v ./...".
+# However, that seems to yield errors such as
+# https://travis-ci.org/asimshankar/triangles/builds/143616878
+# Try what is specified in README.md
+install:
+  - go get github.com/asimshankar/triangles
+
 script:
   - go build .
   - go test ./...
