@@ -8,6 +8,7 @@ before_install:
   - sudo apt-get install -qq libgles2-mesa-dev
   - go get golang.org/x/mobile/cmd/gomobile
   - gomobile init
+  - ls /usr/include/GLES3
 
 # The default install step for Go on Travis seems
 # to be "go get -t -v ./...".
