@@ -1,12 +1,13 @@
+sudo: required
+dist: trusty
 language: go
-
 go:
   - 1.6
 
 before_install:
   - sudo apt-get update -qq
   - sudo apt-cache search libgles2-mesa-dev
-  - sudo apt-get install libgles2-mesa-dev-lts-raring
+  - sudo apt-get install libgles2-mesa-dev
   - ls /usr/include
   - go get golang.org/x/mobile/cmd/gomobile
   - gomobile init
