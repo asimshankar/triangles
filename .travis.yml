@@ -4,11 +4,11 @@ language: go
 go:
   - 1.6
 
+# TODO: git rev-parse HEAD on the gomobile installation
 before_install:
   - sudo apt-get update -qq
   - sudo apt-cache search libgles2-mesa-dev
   - sudo apt-get install libgles2-mesa-dev
-  - ls /usr/include
   - go get golang.org/x/mobile/cmd/gomobile
   - gomobile init
 
@@ -21,6 +21,5 @@ install:
   - go get github.com/asimshankar/triangles
 
 script:
-  - go build .
   - go test ./...
   - gomobile build -target=android .
