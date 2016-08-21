@@ -21,5 +21,4 @@ install:
   - go get github.com/asimshankar/triangles
 
 script:
-  - go test ./...
   - gomobile build -target=android .
